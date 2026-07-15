@@ -111,11 +111,33 @@ class FileMakerQueryTool(Tool):
                 return json.dumps(records, ensure_ascii=False, default=str)
 
             elif action == "execute_sql":
-                return ToolResult.error(
-                    "execute_sql is not supported via FileMaker Data API. "
-                    "Use 'find' or 'select' actions instead, or call a FileMaker script "
-                    "that runs ExecuteSQL internally."
-                )
+                if not query:
+                    return ToolResult.error("SQL query is required for 'execute_sql' action")
+
+                # Execute SQL via FileMaker script. The script receives the SQL
+                # as its parameter and should use Get(ScriptParameter) + ExecuteSQL()
+                # internally, returning results via SetScriptResult() or Exit Script[].
+                #
+                # Script names tried in order:
+                #   1. "ExecuteSQL" — generic SQL runner
+                #   2. Any script the user has set up
+                try:
+                    # OData doesn't need layout context, Data API does
+                    # Try to get a layout for Data API context
+                    layouts = await self._fm.get_layouts()
+                    layout = layouts[0] if layouts else "any"
+                except Exception:
+                    layout = "any"
+
+                result = await self._fm.run_script(layout, "ExecuteSQL", query)
+                if "scriptResult.error" in str(result):
+                    return ToolResult.error(
+                        f"ExecuteSQL script returned error: {result}. "
+                        f"Ensure a script named 'ExecuteSQL' exists in FileMaker that "
+                        f"takes SQL via Get(ScriptParameter) and returns results via "
+                        f"Exit Script[result]."
+                    )
+                return json.dumps(result, ensure_ascii=False, default=str)
 
             else:
                 return ToolResult.error(f"Unknown action: '{action}'")

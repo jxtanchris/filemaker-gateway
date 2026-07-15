@@ -125,6 +125,40 @@ class TestFileMakerQueryTool:
         # Falls through to raw criteria
         mock_fm.find.assert_called_once_with("Contacts", "{invalid json}", limit=100)
 
+    # --- execute_sql via FileMaker script ---
+
+    @pytest.mark.asyncio
+    async def test_execute_sql_calls_run_script(self, tool, mock_fm):
+        """Should call run_script with ExecuteSQL script name and SQL as param."""
+        mock_fm.get_layouts = AsyncMock(return_value=["PROJECT"])
+        mock_fm.run_script = AsyncMock(return_value={"scriptResult": "1,Table1\n2,Table2"})
+
+        result = await tool.execute(
+            action="execute_sql", query="SELECT * FROM FileMaker_Tables"
+        )
+        parsed = json.loads(str(result))
+        assert parsed["scriptResult"] == "1,Table1\n2,Table2"
+        mock_fm.run_script.assert_called_once_with(
+            "PROJECT", "ExecuteSQL", "SELECT * FROM FileMaker_Tables"
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_sql_without_query_returns_error(self, tool):
+        """Should return error when SQL query is missing."""
+        result = await tool.execute(action="execute_sql")
+        assert "SQL query is required" in str(result)
+
+    @pytest.mark.asyncio
+    async def test_execute_sql_script_error_propagates(self, tool, mock_fm):
+        """Should return error when script returns scriptResult.error."""
+        mock_fm.get_layouts = AsyncMock(return_value=["PROJECT"])
+        mock_fm.run_script = AsyncMock(return_value={"scriptResult.error": "Syntax error"})
+
+        result = await tool.execute(
+            action="execute_sql", query="INVALID SQL!!!"
+        )
+        assert "ExecuteSQL script returned error" in str(result)
+
 
 # --- Record Tool ---
 
