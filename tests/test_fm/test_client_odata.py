@@ -78,7 +78,7 @@ class TestFMODataClientCRUD:
         """Should GET single record by primary key."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/Contacts('42')",
+            url=f"{odata_base_url}/Contacts(42)",
             json={"ID": 42, "NAME": "Bob"},
         )
 
@@ -110,7 +110,7 @@ class TestFMODataClientCRUD:
         """Should PATCH to update a record."""
         httpx_mock.add_response(
             method="PATCH",
-            url=f"{odata_base_url}/Contacts('42')",
+            url=f"{odata_base_url}/Contacts(42)",
             json={"ID": 42, "NAME": "Updated"},
         )
 
@@ -124,7 +124,7 @@ class TestFMODataClientCRUD:
         """Should DELETE a record."""
         httpx_mock.add_response(
             method="DELETE",
-            url=f"{odata_base_url}/Contacts('42')",
+            url=f"{odata_base_url}/Contacts(42)",
             status_code=204,
         )
 
@@ -364,7 +364,7 @@ class TestODataClientInternals:
         """get_record should NOT strip — returns raw for container download."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/Contacts('1')",
+            url=f"{odata_base_url}/Contacts(1)",
             json={"ID": 1, "photo": "/9j/xxx", "name": "Alice"},
         )
         client = FMODataClient(odata_config)

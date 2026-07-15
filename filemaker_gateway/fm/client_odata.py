@@ -63,6 +63,23 @@ class FMODataClient:
         return ""
 
     @staticmethod
+    def _format_key(key: str) -> str:
+        """Format an OData key value for URL construction.
+
+        Numeric keys: (123)
+        String keys: ('abc') with single quotes escaped
+        """
+        # Try as integer first — OData numeric keys don't use quotes
+        try:
+            int(key)
+            return f"({key})"
+        except (ValueError, TypeError):
+            pass
+        # String key — escape single quotes and wrap
+        escaped = key.replace("'", "''")
+        return f"('{escaped}')"
+
+    @staticmethod
     def _normalize_records(records: list[dict]) -> list[dict]:
         """Normalize OData records for Agent consumption.
 
@@ -150,10 +167,9 @@ class FMODataClient:
 
     async def get_record(self, table: str, record_id: str) -> dict:
         """Get a single record by primary key."""
-        escaped_pk = quote(record_id, safe="")
-        logger.debug("OData GET record: table={}, pk={}", table, escaped_pk)
+        logger.debug("OData GET record: table={}, pk={}", table, record_id)
         response = await self._client.get(
-            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}{self._format_key(record_id)}",
         )
         if response.status_code == 404:
             raise FMNotFoundError(f"Record '{record_id}' not found in table '{table}'")
@@ -182,10 +198,9 @@ class FMODataClient:
         mod_id: str | None = None,  # ignored — OData has no modId concept
     ) -> dict:
         """Update an existing record by primary key."""
-        escaped_pk = quote(record_id, safe="")
-        logger.debug("OData UPDATE record: table={}, pk={}", table, escaped_pk)
+        logger.debug("OData UPDATE record: table={}, pk={}", table, record_id)
         response = await self._client.patch(
-            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}{self._format_key(record_id)}",
             json=field_data,
         )
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
@@ -193,10 +208,9 @@ class FMODataClient:
 
     async def delete_record(self, table: str, record_id: str) -> None:
         """Delete a record by primary key."""
-        escaped_pk = quote(record_id, safe="")
-        logger.debug("OData DELETE record: table={}, pk={}", table, escaped_pk)
+        logger.debug("OData DELETE record: table={}, pk={}", table, record_id)
         response = await self._client.delete(
-            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}{self._format_key(record_id)}",
         )
         if response.status_code == 204:
             return
