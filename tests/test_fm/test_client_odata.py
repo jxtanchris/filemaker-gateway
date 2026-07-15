@@ -22,7 +22,7 @@ def odata_config():
 @pytest.fixture
 def odata_base_url(odata_config):
     c = odata_config
-    return f"{c.protocol}://{c.host}/fmi/odata/v4/databases/{c.database}"
+    return f"{c.protocol}://{c.host}/fmi/odata/v4/{c.database}"
 
 
 class TestFMODataClientAuth:
@@ -32,7 +32,7 @@ class TestFMODataClientAuth:
         """Should send Basic Auth header on every request."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
+            url=f"{odata_base_url}/Contacts?$top=10&$skip=0",
             json={"value": []},
         )
 
@@ -47,7 +47,7 @@ class TestFMODataClientAuth:
         """Should raise FMAuthError on 401."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
+            url=f"{odata_base_url}/Contacts?$top=10&$skip=0",
             status_code=401,
         )
 
@@ -63,7 +63,7 @@ class TestFMODataClientCRUD:
         """Should GET records with $top and $skip."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=50&$skip=0",
+            url=f"{odata_base_url}/Contacts?$top=50&$skip=0",
             json={"value": [{"ID": 1, "NAME": "Alice"}]},
         )
 
@@ -78,7 +78,7 @@ class TestFMODataClientCRUD:
         """Should GET single record by primary key."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts('42')",
+            url=f"{odata_base_url}/Contacts('42')",
             json={"ID": 42, "NAME": "Bob"},
         )
 
@@ -92,7 +92,7 @@ class TestFMODataClientCRUD:
         """Should POST to create a record."""
         httpx_mock.add_response(
             method="POST",
-            url=f"{odata_base_url}/tables/Contacts",
+            url=f"{odata_base_url}/Contacts",
             json={"ID": 99, "NAME": "Charlie"},
         )
 
@@ -110,7 +110,7 @@ class TestFMODataClientCRUD:
         """Should PATCH to update a record."""
         httpx_mock.add_response(
             method="PATCH",
-            url=f"{odata_base_url}/tables/Contacts('42')",
+            url=f"{odata_base_url}/Contacts('42')",
             json={"ID": 42, "NAME": "Updated"},
         )
 
@@ -124,7 +124,7 @@ class TestFMODataClientCRUD:
         """Should DELETE a record."""
         httpx_mock.add_response(
             method="DELETE",
-            url=f"{odata_base_url}/tables/Contacts('42')",
+            url=f"{odata_base_url}/Contacts('42')",
             status_code=204,
         )
 
@@ -140,7 +140,7 @@ class TestFMODataClientFind:
         """Should use OData $filter syntax."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
+            url=f"{odata_base_url}/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
             json={"value": [{"ID": 1, "NAME": "Alice"}]},
         )
 
@@ -193,7 +193,7 @@ class TestFMODataClientMetadata:
         """Should return table names from OData service document."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables",
+            url=f"{odata_base_url}/",
             json={"value": [{"name": "CONTACT"}, {"name": "INVOICE"}]},
         )
 
@@ -211,7 +211,7 @@ class TestFMODataClientClose:
         # Need a request first to create the client
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/X?$top=1&$skip=0",
+            url=f"{odata_base_url}/X?$top=1&$skip=0",
             json={"value": []},
         )
 
@@ -313,7 +313,7 @@ class TestODataClientInternals:
         """Should strip binary container data in get_records response."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
+            url=f"{odata_base_url}/Contacts?$top=10&$skip=0",
             json={"value": [
                 {"ID": 1, "photo": "/9j/4AAQSkZJRg...", "name": "Alice"},
                 {"ID": 2, "photo": "iVBORw0KGgo...", "name": "Bob"},
@@ -330,7 +330,7 @@ class TestODataClientInternals:
         """Should strip binary container data in find response."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
+            url=f"{odata_base_url}/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
             json={"value": [{"ID": 1, "photo": "/9j/xxx", "name": "Alice"}]},
         )
         client = FMODataClient(odata_config)
@@ -342,7 +342,7 @@ class TestODataClientInternals:
         """get_record should NOT strip — returns raw for container download."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts('1')",
+            url=f"{odata_base_url}/Contacts('1')",
             json={"ID": 1, "photo": "/9j/xxx", "name": "Alice"},
         )
         client = FMODataClient(odata_config)

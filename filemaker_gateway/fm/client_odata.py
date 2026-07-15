@@ -37,7 +37,7 @@ class FMODataClient:
         self._config = config
         self._base_url = (
             f"{config.protocol}://{config.host}"
-            f"/fmi/odata/v4/databases/{config.database}"
+            f"/fmi/odata/v4/{config.database}"
         )
         self._auth = httpx.BasicAuth(config.username, config.password)
         self._client = httpx.AsyncClient(
@@ -115,7 +115,7 @@ class FMODataClient:
             )
 
         qs = self._build_query(**{"$top": limit, "$skip": skip, "$orderby": orderby})
-        url = f"{self._base_url}/tables/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/tables/{quote(table, safe='')}"
+        url = f"{self._base_url}/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/{quote(table, safe='')}"
 
         logger.debug("OData GET records: table={}, limit={}, skip={}", table, limit, skip)
         response = await self._client.get(url)
@@ -128,7 +128,7 @@ class FMODataClient:
         escaped_pk = quote(record_id, safe="")
         logger.debug("OData GET record: table={}, pk={}", table, escaped_pk)
         response = await self._client.get(
-            f"{self._base_url}/tables/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
         )
         if response.status_code == 404:
             raise FMNotFoundError(f"Record '{record_id}' not found in table '{table}'")
@@ -143,7 +143,7 @@ class FMODataClient:
         """Create a new record. Container fields accept base64 strings."""
         logger.debug("OData CREATE record: table={}", table)
         response = await self._client.post(
-            f"{self._base_url}/tables/{quote(table, safe='')}",
+            f"{self._base_url}/{quote(table, safe='')}",
             json=field_data,
         )
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
@@ -160,7 +160,7 @@ class FMODataClient:
         escaped_pk = quote(record_id, safe="")
         logger.debug("OData UPDATE record: table={}, pk={}", table, escaped_pk)
         response = await self._client.patch(
-            f"{self._base_url}/tables/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
             json=field_data,
         )
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
@@ -171,7 +171,7 @@ class FMODataClient:
         escaped_pk = quote(record_id, safe="")
         logger.debug("OData DELETE record: table={}, pk={}", table, escaped_pk)
         response = await self._client.delete(
-            f"{self._base_url}/tables/{quote(table, safe='')}('{escaped_pk}')",
+            f"{self._base_url}/{quote(table, safe='')}('{escaped_pk}')",
         )
         if response.status_code == 204:
             return
@@ -200,7 +200,7 @@ class FMODataClient:
             "$filter": filter_str or None,
             "$orderby": orderby,
         })
-        url = f"{self._base_url}/tables/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/tables/{quote(table, safe='')}"
+        url = f"{self._base_url}/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/{quote(table, safe='')}"
 
         logger.debug("OData FIND: table={}, filter={}", table, filter_str)
         response = await self._client.get(url)
@@ -256,7 +256,7 @@ class FMODataClient:
     async def get_tables(self) -> list[str]:
         """Get all table names."""
         logger.debug("OData GET tables")
-        response = await self._client.get(f"{self._base_url}/tables")
+        response = await self._client.get(f"{self._base_url}/")
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         data = response.json()
         return [t.get("name", "") for t in data.get("value", [])]
@@ -265,7 +265,7 @@ class FMODataClient:
         """Get metadata for a table using $metadata."""
         logger.debug("OData GET table metadata: {}", table)
         response = await self._client.get(
-            f"{self._base_url}/tables/{quote(table, safe='')}?$top=0",
+            f"{self._base_url}/{quote(table, safe='')}?$top=0",
         )
         if response.status_code == 404:
             raise FMNotFoundError(f"Table '{table}' not found")
@@ -290,7 +290,7 @@ class FMODataClient:
         # Try $top=0 to get field info from @odata.context
         logger.debug("OData GET layout metadata: {}", layout)
         response = await self._client.get(
-            f"{self._base_url}/tables/{quote(layout, safe='')}?$top=0",
+            f"{self._base_url}/{quote(layout, safe='')}?$top=0",
         )
         if response.status_code == 404:
             raise FMNotFoundError(f"Table '{layout}' not found")
@@ -301,7 +301,7 @@ class FMODataClient:
         data = response.json()
         # Try to infer fields from the first record (with $top=1)
         sample_resp = await self._client.get(
-            f"{self._base_url}/tables/{quote(layout, safe='')}?$top=1",
+            f"{self._base_url}/{quote(layout, safe='')}?$top=1",
         )
         sample = sample_resp.json()
         fields = []
