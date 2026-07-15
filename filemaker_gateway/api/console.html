@@ -69,11 +69,33 @@
   .msg.user { align-self: flex-end; }
   .msg.user .bubble { background: var(--user-bubble); color: var(--user-text); border-radius: 18px 18px 4px 18px; padding: 10px 16px; font-size: 14px; line-height: 1.5; }
   .msg.assistant { align-self: flex-start; }
-  .msg.assistant .bubble { background: var(--bot-bubble); color: var(--bot-text); border-radius: 18px 18px 18px 4px; padding: 10px 16px; font-size: 14px; line-height: 1.6; border: 1px solid var(--border); }
+  .msg.assistant .bubble { background: var(--bot-bubble); color: var(--bot-text); border-radius: 18px 18px 18px 4px; padding: 10px 16px; font-size: 14px; line-height: 1.6; border: 1px solid var(--border); min-width: 200px; }
   .msg.assistant .bubble p { margin-bottom: 8px; }
   .msg.assistant .bubble p:last-child { margin-bottom: 0; }
   .msg.assistant .bubble pre { background: #f8f8f8; border-radius: 8px; padding: 10px; font-size: 12px; overflow-x: auto; margin: 8px 0; }
-  .msg.assistant .bubble code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+  .msg.assistant .bubble code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 4px; }
+  .msg.assistant .bubble pre code { background: none; padding: 0; border-radius: 0; }
+  .msg.assistant .bubble strong { font-weight: 600; }
+
+  /* Tables in messages */
+  .msg.assistant .bubble table {
+    width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px;
+    border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb;
+  }
+  .msg.assistant .bubble thead { background: #f3f4f6; }
+  .msg.assistant .bubble th {
+    padding: 8px 12px; text-align: left; font-weight: 600; font-size: 12px;
+    color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb;
+  }
+  .msg.assistant .bubble td {
+    padding: 8px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: top;
+  }
+  .msg.assistant .bubble tr:last-child td { border-bottom: none; }
+  .msg.assistant .bubble tr:hover td { background: #fafafa; }
+
+  /* Lists */
+  .msg.assistant .bubble ul, .msg.assistant .bubble ol { margin: 8px 0; padding-left: 20px; }
+  .msg.assistant .bubble li { margin-bottom: 4px; }
 
   /* Tool calls in messages */
   .tool-call {
@@ -185,7 +207,102 @@ fetch(API + '/health').then(r => r.json()).then(data => {
   });
 });
 
-// --- Chat ---
+// --- Markdown rendering ---
+function renderMarkdown(text) {
+  if (!text) return '';
+
+  // Escape HTML first
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks: ```...```
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+  // Inline code: `...`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold: **...**
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Tables: detect |...|...| lines
+  html = renderTables(html);
+
+  // Unordered lists: lines starting with - or *
+  html = html.replace(/((?:^[-*] .+\n?)+)/gm, function(match) {
+    const items = match.trim().split('\n').map(line =>
+      '<li>' + line.replace(/^[-*] /, '') + '</li>'
+    ).join('');
+    return '<ul>' + items + '</ul>';
+  });
+
+  // Ordered lists: lines starting with 1. 2. etc
+  html = html.replace(/((?:^\d+\. .+\n?)+)/gm, function(match) {
+    const items = match.trim().split('\n').map(line =>
+      '<li>' + line.replace(/^\d+\. /, '') + '</li>'
+    ).join('');
+    return '<ol>' + items + '</ol>';
+  });
+
+  // Paragraphs: double newline
+  html = html.replace(/\n\n/g, '</p><p>');
+
+  // Single newline → <br>
+  html = html.replace(/\n/g, '<br>');
+
+  return '<p>' + html + '</p>';
+}
+
+function renderTables(html) {
+  // Find table blocks: consecutive lines containing |
+  return html.replace(/((?:^.*\|.*\n?)+)/gm, function(block) {
+    const lines = block.trim().split('\n');
+    if (lines.length < 2) return block;
+
+    // Check if all lines have |
+    if (!lines.every(l => l.includes('|'))) return block;
+
+    // Skip separator lines (like |---|----|)
+    const dataLines = lines.filter(l => !/^\|[\s\-:]+\|[\s\-:|]+$/.test(l));
+    if (dataLines.length === 0) return block;
+
+    // First line is header
+    const headerCells = dataLines[0].split('|').filter(c => c.trim());
+    const bodyLines = dataLines.slice(1);
+
+    let table = '<table><thead><tr>';
+    headerCells.forEach(c => {
+      table += '<th>' + c.trim() + '</th>';
+    });
+    table += '</tr></thead><tbody>';
+
+    bodyLines.forEach(line => {
+      const cells = line.split('|').filter(c => c.trim());
+      table += '<tr>';
+      cells.forEach(c => { table += '<td>' + c.trim() + '</td>'; });
+      table += '</tr>';
+    });
+    table += '</tbody></table>';
+    return table;
+  });
+}
+
+function appendMessage(role, content, isError = false, hasTool = false) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (isError) bubble.style.background = '#fef2f2';
+  if (role === 'assistant') {
+    bubble.innerHTML = renderMarkdown(content);
+  } else if (hasTool) {
+    bubble.innerHTML = content;
+  } else {
+    bubble.textContent = content;
+  }
+  div.appendChild(bubble);
+  document.getElementById('messages').appendChild(div);
+  scrollDown();
+}
 async function sendMessage() {
   const input = document.getElementById('userInput');
   const msg = input.value.trim();
@@ -250,19 +367,6 @@ async function sendMessage() {
   mediaFiles = [];
   document.getElementById('media-preview').innerHTML = '';
   input.focus();
-}
-
-function appendMessage(role, content, isError = false, hasTool = false) {
-  const div = document.createElement('div');
-  div.className = 'msg ' + role;
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  if (isError) bubble.style.background = '#fef2f2';
-  if (hasTool) bubble.innerHTML = content;
-  else bubble.textContent = content;
-  div.appendChild(bubble);
-  document.getElementById('messages').appendChild(div);
-  scrollDown();
 }
 
 function scrollDown() {

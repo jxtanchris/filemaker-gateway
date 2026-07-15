@@ -42,15 +42,20 @@ class SessionManager:
     ) -> list[dict]:
         """Get message history formatted for LLM context.
 
-        Returns the most recent N messages as a list of
-        {"role": "...", "content": "..."} dicts.
+        Returns the most recent N messages as a list of dicts.
+        Tool messages include tool_call_id and name for API compatibility.
         """
         repo = SessionRepository(db)
         messages = await repo.get_history(session_key, limit=self._max_history_messages)
-        return [
-            {"role": m.role, "content": m.content}
-            for m in messages
-        ]
+        result: list[dict] = []
+        for m in messages:
+            msg: dict = {"role": m.role, "content": m.content}
+            if m.tool_call_id:
+                msg["tool_call_id"] = m.tool_call_id
+            if m.tool_name:
+                msg["name"] = m.tool_name
+            result.append(msg)
+        return result
 
     async def save_turn_messages(
         self,
