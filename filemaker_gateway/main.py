@@ -28,6 +28,14 @@ def create_app(config: AppConfig) -> FastAPI:
     async def lifespan(app: FastAPI):
         """Startup and shutdown lifecycle."""
         # --- Startup ---
+        # Also write logs to a fixed file for easy tailing
+        logger.add(
+            "logs/gateway.log",
+            rotation="10 MB",
+            retention=3,
+            level="DEBUG",
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+        )
         logger.info("Starting FileMaker AI Gateway v0.1.0")
 
         # 1. Database

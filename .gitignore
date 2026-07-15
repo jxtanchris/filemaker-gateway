@@ -10,3 +10,4 @@ build/
 .superpowers/
 .env
 data/
+logs/
