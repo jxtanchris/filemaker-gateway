@@ -251,21 +251,22 @@ class AgentLoop:
         return TurnState.SAVE
 
     async def _save(self, ctx: TurnContext, db: AsyncSession) -> TurnState:
-        """Persist all messages from this turn to the database."""
+        """Persist user message and final answer to the session.
+
+        Only stores the user message and the assistant's final text response.
+        Intermediate tool calls are transient — they are part of the current
+        turn's execution and are not stored in the conversation history.
+        """
         if ctx.run_result is None:
             return TurnState.RESPOND
 
         final_content = ctx.run_result.final_content or ""
-
-        # Separate tool messages from the runner messages
-        tool_messages = _extract_tool_messages(ctx.run_result.messages)
 
         await self._session_manager.save_turn_messages(
             db,
             ctx.session_key,
             user_message=ctx.user_message,
             assistant_content=final_content,
-            tool_messages=tool_messages,
         )
         logger.debug("Turn messages saved to session '{}'", ctx.session_key)
         return TurnState.RESPOND

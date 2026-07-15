@@ -42,20 +42,12 @@ class SessionManager:
     ) -> list[dict]:
         """Get message history formatted for LLM context.
 
-        Returns the most recent N messages as a list of dicts.
-        Tool messages include tool_call_id and name for API compatibility.
+        Returns the most recent N messages as simple role/content dicts.
+        Tool calls are transient and not stored in history.
         """
         repo = SessionRepository(db)
         messages = await repo.get_history(session_key, limit=self._max_history_messages)
-        result: list[dict] = []
-        for m in messages:
-            msg: dict = {"role": m.role, "content": m.content}
-            if m.tool_call_id:
-                msg["tool_call_id"] = m.tool_call_id
-            if m.tool_name:
-                msg["name"] = m.tool_name
-            result.append(msg)
-        return result
+        return [{"role": m.role, "content": m.content} for m in messages]
 
     async def save_turn_messages(
         self,
@@ -63,38 +55,16 @@ class SessionManager:
         session_key: str,
         user_message: str,
         assistant_content: str,
-        tool_messages: list[dict] | None = None,
     ) -> None:
-        """Persist all messages from a completed turn.
+        """Persist user message and assistant response for a completed turn.
 
-        Args:
-            db: Database session.
-            session_key: Session identifier.
-            user_message: The user's input text.
-            assistant_content: The assistant's final text response.
-            tool_messages: Optional list of {"role", "content", "tool_name",
-                "tool_call_id"} dicts for tool call/result pairs.
+        Only stores the user/assistant conversation pair.
+        Intermediate tool calls are transient and not persisted.
         """
         repo = SessionRepository(db)
 
-        # Save user message
         await repo.add_message(session_key, "user", user_message)
-
-        # Save tool call/result pairs if any
-        if tool_messages:
-            for tm in tool_messages:
-                await repo.add_message(
-                    session_key,
-                    role=tm["role"],
-                    content=tm["content"],
-                    tool_name=tm.get("tool_name"),
-                    tool_call_id=tm.get("tool_call_id"),
-                )
-
-        # Save final assistant response
         await repo.add_message(session_key, "assistant", assistant_content)
-
-        # Update session timestamp
         await repo.touch(session_key)
 
     async def list_sessions(

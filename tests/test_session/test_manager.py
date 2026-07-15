@@ -82,10 +82,9 @@ async def test_save_and_retrieve_history(session_manager):
 
 @pytest.mark.asyncio
 async def test_save_turn_with_tools(session_manager):
-    """Should persist tool messages correctly."""
+    """Should persist user + assistant message pair (tool calls are transient)."""
     factory = get_session_factory()
     async with factory() as db:
-        # Session must exist before saving messages
         await session_manager.get_or_create_session(db, "tool-test")
         await db.commit()
 
@@ -93,16 +92,14 @@ async def test_save_turn_with_tools(session_manager):
             db, "tool-test",
             user_message="Echo please",
             assistant_content="Done!",
-            tool_messages=[
-                {"role": "assistant", "content": "...", "tool_name": "echo", "tool_call_id": "1"},
-                {"role": "tool", "content": "Echo: test", "tool_name": "echo", "tool_call_id": "1"},
-            ],
         )
         await db.commit()
 
         detail = await session_manager.get_session_detail(db, "tool-test")
         assert detail is not None
-        assert len(detail["messages"]) == 4
+        assert len(detail["messages"]) == 2
+        assert detail["messages"][0]["role"] == "user"
+        assert detail["messages"][1]["role"] == "assistant"
 
 
 @pytest.mark.asyncio
