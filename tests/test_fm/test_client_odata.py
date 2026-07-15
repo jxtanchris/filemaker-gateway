@@ -163,7 +163,7 @@ class TestFMODataClientScript:
         )
 
         client = FMODataClient(odata_config)
-        result = await client.run_script("ExportPDF", "invoice_123")
+        result = await client.run_script("Layout", "ExportPDF", "invoice_123")
 
         assert result["resultParameter"] == "OK"
 

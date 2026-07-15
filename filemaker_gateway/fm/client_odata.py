@@ -154,6 +154,7 @@ class FMODataClient:
         table: str,
         record_id: str,
         field_data: dict[str, Any],
+        mod_id: str | None = None,  # ignored — OData has no modId concept
     ) -> dict:
         """Update an existing record by primary key."""
         escaped_pk = quote(record_id, safe="")
@@ -211,25 +212,42 @@ class FMODataClient:
 
     async def run_script(
         self,
-        script_name: str,
+        layout: str,
+        script_name: str | None = None,
         script_param: str | None = None,
     ) -> dict:
-        """Execute a FileMaker script via OData.
+        """Execute a FileMaker script.
 
-        POST /Script.{scriptName} with optional scriptParameterValue.
-        No layout context needed (unlike Data API).
+        Compatible with Data API calling convention:
+        run_script(layout, script_name, script_param).
+
+        OData does not require a layout context — the `layout` parameter
+        is accepted for compatibility but ignored. Scripts are called via
+        POST /Script.{scriptName}.
+
+        Also supports old OData style: run_script(name, param).
         """
-        body: dict[str, Any] = {}
-        if script_param is not None:
-            body["scriptParameterValue"] = script_param
+        # Detect calling convention
+        if script_name is None:
+            # OData style: run_script(name, param_or_none)
+            name = layout
+            param = script_param
+        else:
+            # Data API style: run_script(layout, name, param)
+            name = script_name
+            param = script_param
 
-        logger.debug("OData RUN script: name={}", script_name)
+        body: dict[str, Any] = {}
+        if param is not None:
+            body["scriptParameterValue"] = param
+
+        logger.debug("OData RUN script: name={}", name)
         response = await self._client.post(
-            f"{self._base_url}/Script.{script_name}",
+            f"{self._base_url}/Script.{name}",
             json=body,
         )
         if response.status_code == 404:
-            raise FMNotFoundError(f"Script '{script_name}' not found")
+            raise FMNotFoundError(f"Script '{name}' not found")
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         return response.json()
 
@@ -255,6 +273,48 @@ class FMODataClient:
         # OData returns field info in @odata.context or $metadata
         # Return first record as sample to show field structure
         return {"fields": list(response.json().get("value", []) or [])}
+
+    # --- Layout compatibility (OData uses tables, not layouts) ---
+
+    async def get_layouts(self) -> list[str]:
+        """Get all table names (layout-compatible alias for get_tables)."""
+        return await self.get_tables()
+
+    async def get_layout_metadata(self, layout: str) -> dict:
+        """Get metadata for a table (layout-compatible alias).
+
+        OData returns field info differently than Data API.
+        We fetch a zero-row query to discover field names, then wrap in
+        a Data-API-compatible format.
+        """
+        # Try $top=0 to get field info from @odata.context
+        logger.debug("OData GET layout metadata: {}", layout)
+        response = await self._client.get(
+            f"{self._base_url}/tables/{quote(layout, safe='')}?$top=0",
+        )
+        if response.status_code == 404:
+            raise FMNotFoundError(f"Table '{layout}' not found")
+        self._check_errors(
+            self._safe_json(response) if response.status_code >= 400 else None,
+            response.status_code,
+        )
+        data = response.json()
+        # Try to infer fields from the first record (with $top=1)
+        sample_resp = await self._client.get(
+            f"{self._base_url}/tables/{quote(layout, safe='')}?$top=1",
+        )
+        sample = sample_resp.json()
+        fields = []
+        if sample.get("value"):
+            for k, v in sample["value"][0].items():
+                if not k.startswith("@") and not k.endswith("_pk"):
+                    fields.append({
+                        "name": k,
+                        "type": type(v).__name__,
+                        "displayType": "editText",
+                        "result": str(type(v).__name__),
+                    })
+        return {"fieldMetaData": fields}
 
     # --- Container ---
 
