@@ -5,6 +5,7 @@ CRUD operations, script execution, and container support.
 No token management needed — Basic Auth per request.
 """
 
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -50,12 +51,36 @@ class FMODataClient:
     _BINARY_PREFIXES = ("/9j/", "iVBOR", "R0lGOD", "JVBERi0", "SUkqAA")
 
     @staticmethod
-    def _strip_containers(records: list[dict]) -> list[dict]:
-        """Replace base64 container data with [binary data] to keep responses small."""
+    def _extract_key(record_id_url: str) -> str:
+        """Extract OData key from @id like 'EntitySet(123)' or \"EntitySet('abc')\"."""
+        m = re.search(r"\((.+)\)$", record_id_url)
+        if m:
+            key = m.group(1)
+            # Strip surrounding quotes if string key
+            if key.startswith("'") and key.endswith("'"):
+                return key[1:-1]
+            return key
+        return ""
+
+    @staticmethod
+    def _normalize_records(records: list[dict]) -> list[dict]:
+        """Normalize OData records for Agent consumption.
+
+        - Replace base64 container data with [binary data]
+        - Extract record_id from @id (OData key) so Agent can use it for updates
+        - Remove OData metadata fields (@id, @editLink, @context, _)
+        """
         result = []
         for r in records:
             cleaned = {}
+            # Extract the real OData key for record_id
+            odata_id = r.get("@id", "")
+            key = FMODataClient._extract_key(str(odata_id))
+            if key:
+                cleaned["record_id"] = key
             for k, v in r.items():
+                if k.startswith("@") or k == "_":
+                    continue  # skip OData metadata
                 if isinstance(v, str) and any(v.startswith(p) for p in FMODataClient._BINARY_PREFIXES):
                     cleaned[k] = "[binary data]"
                 else:
@@ -121,7 +146,7 @@ class FMODataClient:
         response = await self._client.get(url)
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         data = response.json()
-        return self._strip_containers(data.get("value", []))
+        return self._normalize_records(data.get("value", []))
 
     async def get_record(self, table: str, record_id: str) -> dict:
         """Get a single record by primary key."""
@@ -206,7 +231,7 @@ class FMODataClient:
         response = await self._client.get(url)
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         data = response.json()
-        return self._strip_containers(data.get("value", []))
+        return self._normalize_records(data.get("value", []))
 
     # --- Scripts ---
 

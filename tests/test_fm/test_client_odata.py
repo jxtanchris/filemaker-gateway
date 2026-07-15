@@ -221,52 +221,74 @@ class TestFMODataClientClose:
         # Should not raise
 
 
-class TestStripContainers:
-    """Tests for _strip_containers — binary data placeholder replacement."""
+class TestExtractKey:
+    """Tests for _extract_key — OData @id key extraction."""
+
+    def test_numeric_key(self):
+        """Should extract numeric key from @id URL."""
+        assert FMODataClient._extract_key("https://.../TASK(1)") == "1"
+
+    def test_string_key(self):
+        """Should extract string key without quotes."""
+        assert FMODataClient._extract_key("https://.../Customers('CUST001')") == "CUST001"
+
+    def test_large_numeric_key(self):
+        """Should handle large FileMaker internal IDs."""
+        huge_id = "https://.../TASK(205176054106772774499817506246548637197843673266609178716)"
+        assert FMODataClient._extract_key(huge_id) == "205176054106772774499817506246548637197843673266609178716"
+
+    def test_empty_key(self):
+        """Should return empty string when no key found."""
+        assert FMODataClient._extract_key("") == ""
+        assert FMODataClient._extract_key("no_parens") == ""
+
+
+class TestNormalizeRecords:
+    """Tests for _normalize_records — binary data placeholder replacement."""
 
     def test_strips_jpeg_prefix(self):
         """Should replace JPEG base64 with [binary data]."""
         records = [{"photo": "/9j/4AAQSkZJRg...", "name": "test"}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["photo"] == "[binary data]"
         assert result[0]["name"] == "test"
 
     def test_strips_png_prefix(self):
         """Should replace PNG base64 with [binary data]."""
         records = [{"image": "iVBORw0KGgo..."}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["image"] == "[binary data]"
 
     def test_strips_gif_prefix(self):
         """Should replace GIF base64 with [binary data]."""
         records = [{"image": "R0lGODlh..."}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["image"] == "[binary data]"
 
     def test_strips_pdf_prefix(self):
         """Should replace PDF base64 with [binary data]."""
         records = [{"file": "JVBERi0x..."}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["file"] == "[binary data]"
 
     def test_preserves_non_binary_strings(self):
         """Should keep normal text fields unchanged."""
         records = [{"name": "Alice", "email": "alice@example.com"}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["name"] == "Alice"
         assert result[0]["email"] == "alice@example.com"
 
     def test_preserves_numbers(self):
         """Should keep numeric fields unchanged."""
         records = [{"id": 42, "price": 9.99}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["id"] == 42
         assert result[0]["price"] == 9.99
 
     def test_mixed_binary_and_text(self):
         """Should strip binaries while keeping text in same record."""
         records = [{"id": 1, "photo": "/9j/xxx", "name": "Bob"}]
-        result = FMODataClient._strip_containers(records)
+        result = FMODataClient._normalize_records(records)
         assert result[0]["photo"] == "[binary data]"
         assert result[0]["id"] == 1
         assert result[0]["name"] == "Bob"
@@ -305,11 +327,11 @@ class TestBuildQuery:
 
 
 class TestODataClientInternals:
-    """Integration tests for _strip_containers, _build_query, and _safe_json
+    """Integration tests for _normalize_records, _build_query, and _safe_json
     via the public client API."""
 
     @pytest.mark.asyncio
-    async def test_strip_containers_integration(self, httpx_mock, odata_config, odata_base_url):
+    async def test_normalize_records_integration(self, httpx_mock, odata_config, odata_base_url):
         """Should strip binary container data in get_records response."""
         httpx_mock.add_response(
             method="GET",
@@ -326,7 +348,7 @@ class TestODataClientInternals:
         assert records[0]["name"] == "Alice"
 
     @pytest.mark.asyncio
-    async def test_strip_containers_in_find(self, httpx_mock, odata_config, odata_base_url):
+    async def test_normalize_records_in_find(self, httpx_mock, odata_config, odata_base_url):
         """Should strip binary container data in find response."""
         httpx_mock.add_response(
             method="GET",
@@ -347,5 +369,5 @@ class TestODataClientInternals:
         )
         client = FMODataClient(odata_config)
         record = await client.get_record("Contacts", "1")
-        # get_record returns raw data — _strip_containers not applied
+        # get_record returns raw data — _normalize_records not applied
         assert record["photo"] == "/9j/xxx"
