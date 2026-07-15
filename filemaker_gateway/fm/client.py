@@ -17,11 +17,19 @@ from filemaker_gateway.fm.errors import (
     FMValidationError,
 )
 
-# FileMaker Data API error codes -> exception mapping
-_ERROR_MAP: dict[int, type[FMDataError]] = {
+# HTTP status code -> exception mapping
+_HTTP_ERROR_MAP: dict[int, type[FMDataError]] = {
     401: FMAuthError,
     404: FMNotFoundError,
     400: FMValidationError,
+}
+
+# FileMaker native error codes -> exception mapping
+# (returned in HTTP 200 response body with code != 0)
+_FM_CODE_MAP: dict[int, type[FMDataError]] = {
+    101: FMNotFoundError,   # Record is missing
+    401: FMAuthError,       # No access
+    212: FMAuthError,       # Invalid account name/password
 }
 
 
@@ -87,6 +95,41 @@ class FMDataClient:
         logger.debug("Authenticated successfully")
         return token
 
+    def _invalidate_token(self) -> None:
+        """Clear the cached token, forcing re-authentication on next request."""
+        self._token = None
+
+    async def _request_with_retry(self, request_fn) -> Any:
+        """Execute an API request with automatic 401 retry.
+
+        If the token expires mid-session, this catches the 401,
+        re-authenticates, and retries the request once.
+        """
+        try:
+            return await request_fn()
+        except FMAuthError:
+            # Token may have expired — retry once with fresh auth
+            logger.debug("Auth error on API call, retrying with fresh token")
+            self._invalidate_token()
+            return await request_fn()
+
+    async def _do_api_request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Make an API request with automatic token refresh on 401.
+
+        Single retry: if the cached token expired (~15 min TTL),
+        re-authenticates and retries once. Login itself is NOT retried.
+        """
+        token = await self._ensure_token()
+
+        async def attempt():
+            req_headers = kwargs.pop("headers", {})
+            req_headers["Authorization"] = f"Bearer {token}"
+            if "Content-Type" not in req_headers:
+                req_headers["Content-Type"] = "application/json"
+            return await self._client.request(method, f"{self._base_url}{path}", headers=req_headers, **kwargs)
+
+        return await self._request_with_retry(attempt)
+
     def _auth_headers(self, token: str) -> dict[str, str]:
         """Build authorization headers for API requests."""
         return {
@@ -95,7 +138,11 @@ class FMDataClient:
         }
 
     def _check_errors(self, data: dict, status_code: int) -> None:
-        """Raise appropriate exception from FileMaker error response."""
+        """Raise appropriate exception from FileMaker error response.
+
+        Checks both HTTP status codes and FileMaker-native error codes
+        (which may appear in HTTP 200 response bodies).
+        """
         messages = data.get("messages", [])
         if not messages:
             return
@@ -105,11 +152,14 @@ class FMDataClient:
             return
 
         message = messages[0].get("message", "Unknown error")
-        exc_cls = _ERROR_MAP.get(status_code, FMDataError)
-        if exc_cls is FMDataError:
-            raise exc_cls(code, message)
-        else:
-            raise exc_cls(message)
+
+        # FM native error code takes precedence over HTTP status
+        if code in _FM_CODE_MAP:
+            raise _FM_CODE_MAP[code](message)
+
+        # Fall back to HTTP status mapping
+        exc_cls = _HTTP_ERROR_MAP.get(status_code, FMDataError)
+        raise exc_cls(message) if exc_cls is not FMDataError else exc_cls(code, message)
 
     # --- CRUD ---
 
@@ -131,17 +181,12 @@ class FMDataClient:
         Returns:
             List of record dicts with "fieldData", "recordId", "modId" keys.
         """
-        token = await self._ensure_token()
         params: dict[str, Any] = {"_offset": offset, "_limit": limit}
         if sort:
             params["_sort"] = sort
 
         logger.debug("GET records: layout={}, offset={}, limit={}", layout, offset, limit)
-        response = await self._client.get(
-            f"{self._base_url}/layouts/{layout}/records",
-            headers=self._auth_headers(token),
-            params=params,
-        )
+        response = await self._do_api_request("GET", f"/layouts/{layout}/records", params=params)
         data = response.json()
         self._check_errors(data, response.status_code)
         return data.get("response", {}).get("data", [])

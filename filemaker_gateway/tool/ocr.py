@@ -29,7 +29,7 @@ class OCRTool(Tool):
 
     def __init__(self, provider: LLMProvider | None = None) -> None:
         self._provider = provider
-        self._model = "deepseek-chat"
+        self._model = provider.get_default_model() if provider else "deepseek-chat"
 
     @property
     def name(self) -> str:

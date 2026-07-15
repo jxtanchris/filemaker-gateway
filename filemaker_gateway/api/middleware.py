@@ -7,11 +7,14 @@ from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from filemaker_gateway.security.auth import validate_api_key
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Validate X-API-Key header on protected routes.
 
     Skips /health endpoint.
+    Uses constant-time comparison to prevent timing attacks.
     """
 
     def __init__(self, app, api_key: str) -> None:
@@ -29,7 +32,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         provided = request.headers.get("X-API-Key", "")
-        if provided != self._api_key:
+        if not validate_api_key(provided, self._api_key):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing API key"},

@@ -27,10 +27,10 @@ system_prompt: |
   对数据的任何修改操作之前，先向用户确认。
 
 fm_data_api:
-  enabled: false
-  host: ""
-  database: ""
-  username: ""
-  password: ""  # 推荐用 FILEMAKER_GATEWAY_FM_DATA_API_PASSWORD 环境变量
+  enabled: true
+  host: "1.13.141.154"
+  database: "DataAPI_Transactions"
+  username: "rest"
+  password: "rest"  # 推荐用 FILEMAKER_GATEWAY_FM_DATA_API_PASSWORD 环境变量
   protocol: "https"
-  verify_ssl: true
+  verify_ssl: false
