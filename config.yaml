@@ -34,3 +34,12 @@ fm_data_api:
   password: "rest"  # 推荐用 FILEMAKER_GATEWAY_FM_DATA_API_PASSWORD 环境变量
   protocol: "https"
   verify_ssl: false
+
+fm_odata:
+  enabled: false
+  host: ""
+  database: ""
+  username: ""
+  password: ""
+  protocol: "https"
+  verify_ssl: true

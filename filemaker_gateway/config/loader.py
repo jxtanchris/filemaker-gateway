@@ -9,6 +9,7 @@ from filemaker_gateway.config.schema import (
     AppConfig,
     DatabaseConfig,
     FMDataAPIConfig,
+    FMODataConfig,
     GatewayConfig,
     ProviderConfig,
     ToolConfig,
@@ -80,6 +81,18 @@ def load_config(config_path: str | None = None) -> AppConfig:
                 protocol=fm.get("protocol", config.fm_data_api.protocol),
                 verify_ssl=fm.get("verify_ssl", config.fm_data_api.verify_ssl),
                 enabled=fm.get("enabled", config.fm_data_api.enabled),
+            )
+
+        if "fm_odata" in raw:
+            fo = raw["fm_odata"]
+            config.fm_odata = FMODataConfig(
+                host=fo.get("host", config.fm_odata.host),
+                database=fo.get("database", config.fm_odata.database),
+                username=fo.get("username", config.fm_odata.username),
+                password=fo.get("password", config.fm_odata.password),
+                protocol=fo.get("protocol", config.fm_odata.protocol),
+                verify_ssl=fo.get("verify_ssl", config.fm_odata.verify_ssl),
+                enabled=fo.get("enabled", config.fm_odata.enabled),
             )
 
         if "system_prompt" in raw:
@@ -162,3 +175,12 @@ def _apply_env_overrides(config: AppConfig) -> None:
     _set_if_present("FM_DATA_API_PROTOCOL", config.fm_data_api, "protocol")
     _set_if_present("FM_DATA_API_VERIFY_SSL", config.fm_data_api, "verify_ssl", lambda v: v.lower() == "true")
     _set_if_present("FM_DATA_API_ENABLED", config.fm_data_api, "enabled", lambda v: v.lower() == "true")
+
+    # FM OData
+    _set_if_present("FM_ODATA_HOST", config.fm_odata, "host")
+    _set_if_present("FM_ODATA_DATABASE", config.fm_odata, "database")
+    _set_if_present("FM_ODATA_USERNAME", config.fm_odata, "username")
+    _set_if_present("FM_ODATA_PASSWORD", config.fm_odata, "password")
+    _set_if_present("FM_ODATA_PROTOCOL", config.fm_odata, "protocol")
+    _set_if_present("FM_ODATA_VERIFY_SSL", config.fm_odata, "verify_ssl", lambda v: v.lower() == "true")
+    _set_if_present("FM_ODATA_ENABLED", config.fm_odata, "enabled", lambda v: v.lower() == "true")

@@ -81,8 +81,19 @@ class FileMakerQueryTool(Tool):
 
             elif action == "find":
                 if not layout:
-                    return ToolResult.error("layout is required for 'find' action")
-                criteria = json.loads(query) if query else []
+                    return ToolResult.error("layout/table name is required for 'find' action")
+
+                # Compatible with both OData ($filter string) and Data API (JSON array)
+                if query and query.strip().startswith("["):
+                    # Data API: JSON array of criteria
+                    try:
+                        criteria = json.loads(query)
+                    except json.JSONDecodeError:
+                        return ToolResult.error("query must be valid JSON array for Data API find")
+                else:
+                    # OData: $filter string (or empty for all records)
+                    criteria = query or ""
+
                 records = await self._fm.find(layout, criteria, limit=limit)
                 return json.dumps(records, ensure_ascii=False, default=str)
 

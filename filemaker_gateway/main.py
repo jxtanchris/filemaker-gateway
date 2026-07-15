@@ -10,6 +10,7 @@ from filemaker_gateway.api.middleware import AuthMiddleware, RequestLoggingMiddl
 from filemaker_gateway.api.router import create_router
 from filemaker_gateway.config.schema import AppConfig
 from filemaker_gateway.fm.client import FMDataClient
+from filemaker_gateway.fm.client_odata import FMODataClient
 from filemaker_gateway.provider.factory import make_provider
 from filemaker_gateway.session.database import close_database, create_tables, init_database
 from filemaker_gateway.tool.loader import ToolLoader
@@ -38,9 +39,17 @@ def create_app(config: AppConfig) -> FastAPI:
         provider = make_provider(config.gateway.provider)
         logger.info("Provider ready: {}", config.gateway.provider.name)
 
-        # 3. FM Data API client (optional)
-        fm_client: FMDataClient | None = None
-        if config.fm_data_api.enabled:
+        # 3. FM client — OData first, then Data API, else stub
+        fm_client: FMDataClient | FMODataClient | None = None
+        if config.fm_odata.enabled:
+            fm_client = FMODataClient(config.fm_odata)
+            logger.info(
+                "FM OData client created: {}://{}/{}",
+                config.fm_odata.protocol,
+                config.fm_odata.host,
+                config.fm_odata.database,
+            )
+        elif config.fm_data_api.enabled:
             fm_client = FMDataClient(config.fm_data_api)
             logger.info(
                 "FM Data API client created: {}://{}/{}",
@@ -49,7 +58,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 config.fm_data_api.database,
             )
         else:
-            logger.info("FM Data API disabled — FM Tools will return stub errors")
+            logger.info("FM API disabled — FM Tools will return stub errors")
 
         # 4. Tools (with dependency injection)
         tool_registry = ToolRegistry()
@@ -70,7 +79,7 @@ def create_app(config: AppConfig) -> FastAPI:
         # --- Shutdown ---
         if fm_client is not None:
             await fm_client.close()
-            logger.info("FM Data API client closed")
+            logger.info("FM client closed")
         await close_database()
         logger.info("Gateway shut down")
 
