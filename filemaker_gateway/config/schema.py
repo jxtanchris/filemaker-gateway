@@ -7,6 +7,13 @@ from filemaker_gateway.config.defaults import (
     DEFAULT_FM_DATABASE,
     DEFAULT_FM_ENABLED,
     DEFAULT_FM_HOST,
+    DEFAULT_FM_ODATA_DATABASE,
+    DEFAULT_FM_ODATA_ENABLED,
+    DEFAULT_FM_ODATA_HOST,
+    DEFAULT_FM_ODATA_PASSWORD,
+    DEFAULT_FM_ODATA_PROTOCOL,
+    DEFAULT_FM_ODATA_USERNAME,
+    DEFAULT_FM_ODATA_VERIFY_SSL,
     DEFAULT_FM_PASSWORD,
     DEFAULT_FM_PROTOCOL,
     DEFAULT_FM_USERNAME,
@@ -70,12 +77,25 @@ class FMDataAPIConfig(BaseModel):
     enabled: bool = DEFAULT_FM_ENABLED
 
 
+class FMODataConfig(BaseModel):
+    """FileMaker OData v4 connection configuration."""
+
+    host: str = DEFAULT_FM_ODATA_HOST
+    database: str = DEFAULT_FM_ODATA_DATABASE
+    username: str = DEFAULT_FM_ODATA_USERNAME
+    password: str = DEFAULT_FM_ODATA_PASSWORD
+    protocol: str = DEFAULT_FM_ODATA_PROTOCOL
+    verify_ssl: bool = DEFAULT_FM_ODATA_VERIFY_SSL
+    enabled: bool = DEFAULT_FM_ODATA_ENABLED
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
 
     gateway: GatewayConfig = GatewayConfig()
     database: DatabaseConfig = DatabaseConfig()
     fm_data_api: FMDataAPIConfig = FMDataAPIConfig()
+    fm_odata: FMODataConfig = FMODataConfig()
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     max_tokens: int = DEFAULT_MAX_TOKENS
