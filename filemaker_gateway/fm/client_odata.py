@@ -46,6 +46,23 @@ class FMODataClient:
             timeout=httpx.Timeout(60.0),
         )
 
+    # Binary content prefixes to detect container field data
+    _BINARY_PREFIXES = ("/9j/", "iVBOR", "R0lGOD", "JVBERi0", "SUkqAA")
+
+    @staticmethod
+    def _strip_containers(records: list[dict]) -> list[dict]:
+        """Replace base64 container data with [binary data] to keep responses small."""
+        result = []
+        for r in records:
+            cleaned = {}
+            for k, v in r.items():
+                if isinstance(v, str) and any(v.startswith(p) for p in FMODataClient._BINARY_PREFIXES):
+                    cleaned[k] = "[binary data]"
+                else:
+                    cleaned[k] = v
+            result.append(cleaned)
+        return result
+
     def _check_errors(self, data: dict | None, status_code: int) -> None:
         """Raise appropriate exception from HTTP status."""
         if status_code < 400:
@@ -67,6 +84,19 @@ class FMODataClient:
         except Exception:
             return None
 
+    @staticmethod
+    def _build_query(**kwargs) -> str:
+        """Build OData query string WITHOUT encoding $ signs.
+
+        httpx encodes $top to %24top which FileMaker Server rejects.
+        We construct the query string manually to preserve literal $ chars.
+        """
+        parts = []
+        for k, v in kwargs.items():
+            if v is not None and v != "":
+                parts.append(f"{k}={v}")
+        return "&".join(parts)
+
     # --- CRUD ---
 
     async def get_records(
@@ -78,21 +108,20 @@ class FMODataClient:
     ) -> list[dict]:
         """Read records from a table using OData $top/$skip."""
         skip = offset - 1
-        params: dict[str, Any] = {"$top": limit, "$skip": skip}
+        orderby = None
         if sort and len(sort) > 0:
             orderby = ",".join(
                 f"{s['fieldName']} {s.get('sortOrder', 'asc')}" for s in sort
             )
-            params["$orderby"] = orderby
+
+        qs = self._build_query(**{"$top": limit, "$skip": skip, "$orderby": orderby})
+        url = f"{self._base_url}/tables/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/tables/{quote(table, safe='')}"
 
         logger.debug("OData GET records: table={}, limit={}, skip={}", table, limit, skip)
-        response = await self._client.get(
-            f"{self._base_url}/tables/{quote(table, safe='')}",
-            params=params,
-        )
+        response = await self._client.get(url)
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         data = response.json()
-        return data.get("value", [])
+        return self._strip_containers(data.get("value", []))
 
     async def get_record(self, table: str, record_id: str) -> dict:
         """Get a single record by primary key."""
@@ -159,23 +188,24 @@ class FMODataClient:
     ) -> list[dict]:
         """Find records using OData $filter."""
         skip = offset - 1
-        params: dict[str, Any] = {"$top": limit, "$skip": skip}
-        if filter_str:
-            params["$filter"] = filter_str
+        orderby = None
         if sort:
             orderby = ",".join(
                 f"{s['fieldName']} {s.get('sortOrder', 'asc')}" for s in sort
             )
-            params["$orderby"] = orderby
+
+        qs = self._build_query(**{
+            "$top": limit, "$skip": skip,
+            "$filter": filter_str or None,
+            "$orderby": orderby,
+        })
+        url = f"{self._base_url}/tables/{quote(table, safe='')}?{qs}" if qs else f"{self._base_url}/tables/{quote(table, safe='')}"
 
         logger.debug("OData FIND: table={}, filter={}", table, filter_str)
-        response = await self._client.get(
-            f"{self._base_url}/tables/{quote(table, safe='')}",
-            params=params,
-        )
+        response = await self._client.get(url)
         self._check_errors(self._safe_json(response) if response.status_code >= 400 else None, response.status_code)
         data = response.json()
-        return data.get("value", [])
+        return self._strip_containers(data.get("value", []))
 
     # --- Scripts ---
 

@@ -83,13 +83,26 @@ class FileMakerQueryTool(Tool):
                 if not layout:
                     return ToolResult.error("layout/table name is required for 'find' action")
 
-                # Compatible with both OData ($filter string) and Data API (JSON array)
+                # Compatible with both OData ($filter string) and Data API (JSON array/object)
                 if query and query.strip().startswith("["):
                     # Data API: JSON array of criteria
                     try:
                         criteria = json.loads(query)
                     except json.JSONDecodeError:
                         return ToolResult.error("query must be valid JSON array for Data API find")
+                elif query and query.strip().startswith("{"):
+                    # JSON object — convert to OData $filter or treat as-is
+                    try:
+                        obj = json.loads(query)
+                        filters = []
+                        for k, v in obj.items():
+                            if v == "*" or v == "":
+                                continue  # wildcard — skip filter
+                            escaped_v = str(v).replace("'", "''")
+                            filters.append(f"{k} eq '{escaped_v}'")
+                        criteria = " and ".join(filters) if filters else ""
+                    except json.JSONDecodeError:
+                        criteria = query
                 else:
                     # OData: $filter string (or empty for all records)
                     criteria = query or ""

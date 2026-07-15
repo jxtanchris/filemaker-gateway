@@ -32,7 +32,7 @@ class TestFMODataClientAuth:
         """Should send Basic Auth header on every request."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?%24top=10&%24skip=0",
+            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
             json={"value": []},
         )
 
@@ -47,7 +47,7 @@ class TestFMODataClientAuth:
         """Should raise FMAuthError on 401."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?%24top=10&%24skip=0",
+            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
             status_code=401,
         )
 
@@ -63,7 +63,7 @@ class TestFMODataClientCRUD:
         """Should GET records with $top and $skip."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?%24top=50&%24skip=0",
+            url=f"{odata_base_url}/tables/Contacts?$top=50&$skip=0",
             json={"value": [{"ID": 1, "NAME": "Alice"}]},
         )
 
@@ -140,7 +140,7 @@ class TestFMODataClientFind:
         """Should use OData $filter syntax."""
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/Contacts?%24filter=NAME+eq+%27Alice%27&%24top=100&%24skip=0",
+            url=f"{odata_base_url}/tables/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
             json={"value": [{"ID": 1, "NAME": "Alice"}]},
         )
 
@@ -211,7 +211,7 @@ class TestFMODataClientClose:
         # Need a request first to create the client
         httpx_mock.add_response(
             method="GET",
-            url=f"{odata_base_url}/tables/X?%24top=1&%24skip=0",
+            url=f"{odata_base_url}/tables/X?$top=1&$skip=0",
             json={"value": []},
         )
 
@@ -219,3 +219,133 @@ class TestFMODataClientClose:
         await client.get_records("X", limit=1)
         await client.close()
         # Should not raise
+
+
+class TestStripContainers:
+    """Tests for _strip_containers — binary data placeholder replacement."""
+
+    def test_strips_jpeg_prefix(self):
+        """Should replace JPEG base64 with [binary data]."""
+        records = [{"photo": "/9j/4AAQSkZJRg...", "name": "test"}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["photo"] == "[binary data]"
+        assert result[0]["name"] == "test"
+
+    def test_strips_png_prefix(self):
+        """Should replace PNG base64 with [binary data]."""
+        records = [{"image": "iVBORw0KGgo..."}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["image"] == "[binary data]"
+
+    def test_strips_gif_prefix(self):
+        """Should replace GIF base64 with [binary data]."""
+        records = [{"image": "R0lGODlh..."}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["image"] == "[binary data]"
+
+    def test_strips_pdf_prefix(self):
+        """Should replace PDF base64 with [binary data]."""
+        records = [{"file": "JVBERi0x..."}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["file"] == "[binary data]"
+
+    def test_preserves_non_binary_strings(self):
+        """Should keep normal text fields unchanged."""
+        records = [{"name": "Alice", "email": "alice@example.com"}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["name"] == "Alice"
+        assert result[0]["email"] == "alice@example.com"
+
+    def test_preserves_numbers(self):
+        """Should keep numeric fields unchanged."""
+        records = [{"id": 42, "price": 9.99}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["id"] == 42
+        assert result[0]["price"] == 9.99
+
+    def test_mixed_binary_and_text(self):
+        """Should strip binaries while keeping text in same record."""
+        records = [{"id": 1, "photo": "/9j/xxx", "name": "Bob"}]
+        result = FMODataClient._strip_containers(records)
+        assert result[0]["photo"] == "[binary data]"
+        assert result[0]["id"] == 1
+        assert result[0]["name"] == "Bob"
+
+
+class TestBuildQuery:
+    """Tests for _build_query — OData query string without $ encoding."""
+
+    def test_basic_params(self):
+        """Should join params with & and keep literal $ signs."""
+        qs = FMODataClient._build_query(**{"$top": 10, "$skip": 0})
+        assert qs == "$top=10&$skip=0"
+
+    def test_skips_none_values(self):
+        """Should omit params with None value."""
+        qs = FMODataClient._build_query(**{"$top": 10, "$orderby": None})
+        assert qs == "$top=10"
+
+    def test_skips_empty_string(self):
+        """Should omit params with empty string value."""
+        qs = FMODataClient._build_query(**{"$top": 10, "$filter": ""})
+        assert qs == "$top=10"
+
+    def test_keeps_filter_with_value(self):
+        """Should include $filter when it has a value."""
+        qs = FMODataClient._build_query(**{"$top": 100, "$filter": "NAME eq 'Alice'"})
+        assert "$top=100" in qs
+        assert "$filter=NAME eq 'Alice'" in qs
+
+    def test_all_params_present(self):
+        """Should include all non-empty params in order."""
+        qs = FMODataClient._build_query(
+            **{"$top": 50, "$skip": 10, "$filter": "x eq 1", "$orderby": "id asc"}
+        )
+        assert qs == "$top=50&$skip=10&$filter=x eq 1&$orderby=id asc"
+
+
+class TestODataClientInternals:
+    """Integration tests for _strip_containers, _build_query, and _safe_json
+    via the public client API."""
+
+    @pytest.mark.asyncio
+    async def test_strip_containers_integration(self, httpx_mock, odata_config, odata_base_url):
+        """Should strip binary container data in get_records response."""
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{odata_base_url}/tables/Contacts?$top=10&$skip=0",
+            json={"value": [
+                {"ID": 1, "photo": "/9j/4AAQSkZJRg...", "name": "Alice"},
+                {"ID": 2, "photo": "iVBORw0KGgo...", "name": "Bob"},
+            ]},
+        )
+        client = FMODataClient(odata_config)
+        records = await client.get_records("Contacts", limit=10)
+        assert records[0]["photo"] == "[binary data]"
+        assert records[1]["photo"] == "[binary data]"
+        assert records[0]["name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_strip_containers_in_find(self, httpx_mock, odata_config, odata_base_url):
+        """Should strip binary container data in find response."""
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{odata_base_url}/tables/Contacts?$top=100&$skip=0&$filter=NAME+eq+%27Alice%27",
+            json={"value": [{"ID": 1, "photo": "/9j/xxx", "name": "Alice"}]},
+        )
+        client = FMODataClient(odata_config)
+        records = await client.find("Contacts", "NAME eq 'Alice'")
+        assert records[0]["photo"] == "[binary data]"
+
+    @pytest.mark.asyncio
+    async def test_get_record_strips_container(self, httpx_mock, odata_config, odata_base_url):
+        """get_record should NOT strip — returns raw for container download."""
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{odata_base_url}/tables/Contacts('1')",
+            json={"ID": 1, "photo": "/9j/xxx", "name": "Alice"},
+        )
+        client = FMODataClient(odata_config)
+        record = await client.get_record("Contacts", "1")
+        # get_record returns raw data — _strip_containers not applied
+        assert record["photo"] == "/9j/xxx"

@@ -68,6 +68,63 @@ class TestFileMakerQueryTool:
         result = await tool.execute(action="select", layout="Contacts")
         assert "Connection refused" in str(result)
 
+    # --- JSON object find format (OData $filter conversion) ---
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_converts_to_filter(self, tool, mock_fm):
+        """Should convert JSON object {field: value} to OData $filter string."""
+        mock_fm.find.return_value = [
+            {"fieldData": {"name": "Alice"}, "recordId": "1", "modId": "0"}
+        ]
+        result = await tool.execute(action="find", layout="Contacts", query='{"name":"Alice"}')
+        parsed = json.loads(str(result))
+        assert parsed[0]["fieldData"]["name"] == "Alice"
+        # Should call find with OData $filter string
+        mock_fm.find.assert_called_once_with("Contacts", "name eq 'Alice'", limit=100)
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_multiple_fields(self, tool, mock_fm):
+        """Should combine multiple fields with 'and'."""
+        mock_fm.find.return_value = []
+        await tool.execute(action="find", layout="Contacts", query='{"name":"Bob","city":"Paris"}')
+        # Order depends on dict iteration, check both possibilities
+        call_args = mock_fm.find.call_args[0]
+        filter_str = call_args[1]
+        assert "name eq 'Bob'" in filter_str
+        assert "city eq 'Paris'" in filter_str
+        assert " and " in filter_str
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_wildcard_skips_filter(self, tool, mock_fm):
+        """Should skip fields with * wildcard value."""
+        mock_fm.find.return_value = []
+        await tool.execute(action="find", layout="Contacts", query='{"name":"*"}')
+        mock_fm.find.assert_called_once_with("Contacts", "", limit=100)
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_empty_value_skips_filter(self, tool, mock_fm):
+        """Should skip fields with empty string value."""
+        mock_fm.find.return_value = []
+        await tool.execute(action="find", layout="Contacts", query='{"name":""}')
+        mock_fm.find.assert_called_once_with("Contacts", "", limit=100)
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_escapes_single_quote(self, tool, mock_fm):
+        """Should escape single quotes in field values for OData."""
+        mock_fm.find.return_value = []
+        await tool.execute(action="find", layout="Contacts", query='{"name":"O\'Brien"}')
+        call_args = mock_fm.find.call_args[0]
+        filter_str = call_args[1]
+        assert "O''Brien" in filter_str
+
+    @pytest.mark.asyncio
+    async def test_find_with_json_object_invalid_falls_through(self, tool, mock_fm):
+        """Should pass through as raw string when JSON is invalid but starts with {."""
+        mock_fm.find.return_value = []
+        await tool.execute(action="find", layout="Contacts", query="{invalid json}")
+        # Falls through to raw criteria
+        mock_fm.find.assert_called_once_with("Contacts", "{invalid json}", limit=100)
+
 
 # --- Record Tool ---
 
