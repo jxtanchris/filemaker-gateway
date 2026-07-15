@@ -43,11 +43,28 @@ class SessionManager:
         """Get message history formatted for LLM context.
 
         Returns the most recent N messages as simple role/content dicts.
-        Tool calls are transient and not stored in history.
+        Tool calls are transient — only user and plain assistant messages
+        (without tool_call_id) are included in the context.
         """
         repo = SessionRepository(db)
         messages = await repo.get_history(session_key, limit=self._max_history_messages)
-        return [{"role": m.role, "content": m.content} for m in messages]
+        result: list[dict] = []
+        for m in messages:
+            # Skip tool messages — they are transient and require tool_call_id
+            # which we don't persist across turns
+            if m.role == "tool":
+                continue
+            # Skip assistant messages that are tool call invocations
+            # (only keep plain text assistant responses)
+            if m.role == "assistant" and m.tool_call_id:
+                continue
+            entry: dict = {"role": m.role, "content": m.content}
+            if m.tool_call_id:
+                entry["tool_call_id"] = m.tool_call_id
+            if m.tool_name:
+                entry["name"] = m.tool_name
+            result.append(entry)
+        return result
 
     async def save_turn_messages(
         self,
