@@ -1,0 +1,574 @@
+目的:参照nanobot项目，学习做一个与filemaker交付的平台。
+
+这是一个非常好的问题，而且根据我对你之前项目的了解（**FileMaker + Python + OCR + 本地LLM + MCP**），
+
+**我反而不建议你一开始就把 nanobot 嵌进 FileMaker**。
+
+我建议采用一种企业软件开发的方法：
+
+> **先设计架构，再实现接口，最后才接 FileMaker。**
+
+否则最后一定会变成一个 5000 行 Python 脚本，几年后没人敢改。
+
+---
+nanobot 项目地址:https://github.com/HKUDS/nanobot
+
+# 我建议整个项目分三个阶段
+
+```
+第一阶段：理解 Agent（nanobot）
+        ↓
+第二阶段：设计 FileMaker Agent Gateway
+        ↓
+第三阶段：FileMaker 接入 AI
+```
+
+我们先不要写代码。
+
+先画整个系统。
+
+---
+
+# 第一阶段（目前正在学习）
+
+这一阶段目标只有一个：
+
+> **彻底理解 Agent 是如何工作的。**
+
+例如：
+
+```
+User
+   │
+   ▼
+Loop
+   │
+   ▼
+Runner
+   │
+   ▼
+Provider
+   │
+   ▼
+Tool
+```
+
+这一层不要修改。
+
+以后尽量保持官方升级兼容。
+
+---
+
+# 第二阶段（这是最重要的一层）
+
+我建议不要让 FileMaker 直接调用 Agent。
+
+而是增加一层：
+
+```
+FileMaker
+      │
+ REST API
+      │
+      ▼
+FileMaker Gateway（Python）
+      │
+      ▼
+AgentLoop
+      │
+      ▼
+Provider
+```
+
+以后：
+
+FileMaker 永远不知道：
+
+```
+GPT
+
+Claude
+
+GLM
+
+DeepSeek
+
+Gemini
+```
+
+它只知道：
+
+```
+POST /chat
+```
+
+这就是软件分层。
+
+---
+
+# Gateway 做什么？
+
+例如：
+
+```
+POST /chat
+
+{
+    session:"123",
+
+    message:"帮我读取这张发票"
+}
+```
+
+Gateway：
+
+```
+↓
+
+转换成
+
+InboundMessage
+
+↓
+
+AgentLoop
+
+↓
+
+AgentRunner
+
+↓
+
+返回
+
+OutboundMessage
+
+↓
+
+JSON
+
+↓
+
+FileMaker
+```
+
+所以：
+
+Gateway 就像：
+
+```
+翻译官
+```
+
+---
+
+# 第三阶段：FileMaker 永远调用 HTTP
+
+例如：
+
+```
+Insert From URL
+
+↓
+
+POST
+
+↓
+
+http://127.0.0.1:8080/chat
+```
+
+收到：
+
+```
+{
+   "answer":"......",
+   "thinking":"......",
+   "tool_calls":[]
+}
+```
+
+FileMaker 根本不用知道：
+
+```
+LLM
+
+Prompt
+
+Token
+
+Tool
+
+Memory
+```
+
+全部隐藏。
+
+---
+
+# 我建议你的整个系统以后长这样
+
+```
+                 FileMaker
+                     │
+                     │ REST
+                     ▼
+        ┌──────────────────────┐
+        │ FileMaker Gateway    │
+        └──────────────────────┘
+                     │
+                     ▼
+              AgentLoop
+                     │
+                     ▼
+             AgentRunner
+                     │
+        ┌────────────┼────────────┐
+        ▼            ▼            ▼
+     Provider      Memory       Tool
+        │                         │
+        ▼                         ▼
+   DeepSeek                  OCR Tool
+   GPT                       SQL Tool
+   GLM                       FileMaker Tool
+                             Python Tool
+```
+
+这是我认为最适合你的架构。
+
+---
+
+# FileMaker 不应该直接干什么？
+
+很多人会这样：
+
+```
+FileMaker
+
+↓
+
+Python
+
+↓
+
+OpenAI
+
+↓
+
+Python
+
+↓
+
+FileMaker
+```
+
+然后：
+
+OCR：
+
+```
+FileMaker
+
+↓
+
+Python
+
+↓
+
+OCR
+
+↓
+
+Python
+
+↓
+
+FileMaker
+```
+
+SQL：
+
+```
+FileMaker
+
+↓
+
+Python
+
+↓
+
+SQL
+
+↓
+
+Python
+
+↓
+
+FileMaker
+```
+
+最后：
+
+Python：
+
+```
+8000 行
+```
+
+完全不能维护。
+
+---
+
+# 我建议 Tool 全部独立
+
+例如：
+
+```
+tool/
+
+    filemaker_query.py
+
+    filemaker_update.py
+
+    invoice_ocr.py
+
+    pdf_reader.py
+
+    mysql_query.py
+
+    email.py
+```
+
+Agent：
+
+根本不知道：
+
+这些 Tool 是什么。
+
+只知道：
+
+```
+execute(tool_name)
+```
+
+---
+
+# 那 FileMaker 应该提供哪些能力？
+
+我建议只开放四个 Tool。
+
+以后所有功能都围绕这四个。
+
+```
+FileMakerQueryTool
+```
+
+负责：
+
+```
+SELECT
+
+ExecuteSQL
+
+Find
+```
+
+---
+
+```
+FileMakerRecordTool
+```
+
+负责：
+
+```
+新增
+
+修改
+
+删除
+```
+
+---
+
+```
+FileMakerScriptTool
+```
+
+负责：
+
+```
+Perform Script
+```
+
+例如：
+
+```
+打印
+
+导出PDF
+
+生成条码
+```
+
+---
+
+```
+FileMakerLayoutTool
+```
+
+负责：
+
+```
+打开布局
+
+切换窗口
+
+定位记录
+```
+
+这样：
+
+LLM：
+
+只需要：
+
+```
+call Tool
+```
+
+不用知道 FileMaker。
+
+---
+
+# Memory 放哪里？
+
+不要放 FileMaker。
+
+建议：
+
+```
+SQLite
+```
+
+或者：
+
+```
+PostgreSQL
+```
+
+保存：
+
+```
+Session
+
+History
+
+Summary
+
+Checkpoint
+```
+
+FileMaker：
+
+继续保存：
+
+```
+业务数据
+```
+
+千万不要混。
+
+---
+
+# OCR 放哪里？
+
+你已经做过：
+
+GLM OCR
+
+Invoice OCR
+
+PDF OCR
+
+建议：
+
+全部做成 Tool。
+
+```
+OCRTool
+```
+
+输入：
+
+```
+image
+```
+
+输出：
+
+```
+JSON
+```
+
+Agent：
+
+自动调用。
+
+---
+
+# 我建议整个课程这样安排（从零开始）
+
+这也是我认为最适合你的路线，因为与你现有项目高度契合。
+
+### 第一部分：理解 nanobot 内核（约 10 课）
+
+目标：彻底掌握 Agent 的运行机制。
+
+* 第 1 课：项目整体架构
+* 第 2 课：CLI 与启动流程
+* 第 3 课：AgentLoop（状态机）
+* 第 4 课：AgentRunner（推理循环）
+* 第 5 课：Provider（模型抽象）
+* 第 6 课：Tool 调度
+* 第 7 课：Memory 与 Session
+* 第 8 课：MCP 集成
+* 第 9 课：Hook 与事件
+* 第 10 课：完整消息生命周期
+
+### 第二部分：设计 FileMaker AI Gateway（约 8 课）
+
+目标：建立一个独立于 FileMaker 的 AI 服务层。
+
+* Gateway 架构设计
+* REST API 设计
+* Session 管理
+* Tool Registry
+* FileMaker Tool 封装
+* OCR Tool 封装
+* SQL Tool 封装
+* 权限与日志设计
+
+### 第三部分：FileMaker 集成（约 10 课）
+
+目标：将 AI 能力无缝接入现有 FileMaker 系统。
+
+* Insert From URL 调用 Gateway
+* JSON 请求/响应规范
+* Perform Script with Parameter
+* 容器字段上传图片
+* OCR 发票自动识别
+* AI 查询业务数据
+* AI 修改记录（权限控制）
+* AI 工作流（例如审批、生成报告）
+* Agent 与 FileMaker 脚本协同
+* 完整项目部署与运维
+
+---
+
+**我建议我们最终完成的不是一个“AI 聊天机器人”，而是一个你自己的企业级平台：**
+
+> **FileMaker AI Agent Platform**
+
+它将以 **nanobot** 作为 Agent 内核，以 **Gateway** 作为集成层，以 **FileMaker** 作为业务系统，最终形成一个可持续扩展的架构。这样未来无论你更换模型（DeepSeek、GLM、GPT）还是增加新工具（OCR、ERP、MES、邮件），FileMaker 都无需修改核心逻辑，只需要调用统一的 Gateway 接口即可。这种架构也最适合长期维护和持续演进。

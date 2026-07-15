@@ -1,0 +1,32 @@
+FileMaker Script: AI Chat
+========================
+用途: 基础 AI 对话 — 用户输入文本，AI 回复，结果写回字段
+
+前提条件:
+  1. Gateway 运行在 http://127.0.0.1:8080
+  2. 布局上有以下字段:
+     - UserInput (Text) — 用户输入
+     - AIResponse (Text) — AI 回复
+     - GatewayURL (Text, 计算字段) = "http://127.0.0.1:8080/chat"
+
+脚本步骤:
+  1. Set Variable [$input; Value: MyTable::UserInput]
+  2. Set Variable [$payload; Value: JSONSetElement("{}";
+       ["session"; Get(AccountName); JSONString];
+       ["message"; $input; JSONString]
+     )]
+  3. Set Variable [$api_key; Value: "filemaker-secret-key-change-me"]
+  4. Insert From URL [
+       Select; With dialog: Off; Target: $result;
+       $payload;
+       cURL options: "--header \"X-API-Key: " & $api_key & "\" --header \"Content-Type: application/json\"";
+       MyTable::GatewayURL
+     ]
+  5. Set Variable [$answer; Value: JSONGetElement($result; "answer")]
+  6. Set Field [MyTable::AIResponse; $answer]
+  7. Exit Script [Text Result: $answer]
+
+注意:
+  - Insert From URL 超时默认 60s，复杂查询可能不足
+  - $result 是完整的 JSON 响应: {"answer":"...", "session":"...", "tool_calls":[...], "stop_reason":"..."}
+  - session 参数用 Get(AccountName) 确保每个用户独立会话

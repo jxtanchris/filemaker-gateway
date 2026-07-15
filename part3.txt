@@ -1,0 +1,333 @@
+ Context
+  
+ Part 2 已完成 Gateway 核心引擎，4 个 FileMaker Tools 为 stub。Part 3 目标：
+ 将 AI 能力无缝接入 FileMaker，完成从 FileMaker → Gateway → LLM → FM Data 的完整闭环。
+
+ 双向通信：
+ - FM → Gateway: FileMaker 通过 Insert From URL 调用 Gateway（FileMaker 是客户端）
+ - Gateway → FM: AI Agent 通过 FileMaker Data API 读写 FM 数据（Gateway 调用 FM Server）
+
+ 选型：FileMaker Data API（用户选择），不需要 proofkit-mcp 实时连接。
+
+ Part 3 整体架构
+
+ FileMaker Pro
+    │ Insert From URL (POST /chat)
+    ▼
+ FileMaker AI Gateway (127.0.0.1:8080)
+    │ AgentLoop → AgentRunner → DeepSeek
+    │
+    │ Tool 需要读数据时:
+    ▼
+ FileMaker Data API (FM Server)
+    │ REST: /fmi/data/v1/databases/{db}/layouts/{layout}/...
+    ▼
+ FileMaker Server (业务数据库)
+
+ 两种调用方向
+
+ 方向 1: FM → Gateway (Insert From URL)
+ FM Script "AI Chat"
+   → Set Variable [$payload = JSONSetElement(...)]
+   → Insert From URL [http://127.0.0.1:8080/chat, $payload]
+   → JSON 解析 → 展示结果
+
+ 方向 2: Gateway → FM (Data API)
+ AgentRunner 调用 filemaker_query tool
+   → fm_client.py
+   → POST https://fm-server/fmi/data/v1/databases/MyDB/layouts/Contacts/_find
+   → 返回数据 → LLM 整理 → 回复用户
+
+ 实现分 5 个 Phase
+
+ Phase 1: Data API 客户端 (filemaker_gateway/fm/)
+
+ 新建 filemaker_gateway/fm/ 模块，封装 Data API 调用。
+
+ filemaker_gateway/fm/
+ ├── __init__.py
+ ├── client.py       # FMDataClient: auth, CRUD, find, script
+ └── errors.py       # FMDataError, handle Data API error codes
+
+ FMDataClient 接口：
+ class FMDataClient:
+     def __init__(self, host, database, username, password):
+         self.base_url = f"https://{host}/fmi/data/v1/databases/{database}"
+
+     async def login() -> str                        # → token
+     async def logout(token) -> None
+
+     # CRUD
+     async def get_records(layout, offset, limit, sort) -> list[dict]
+     async def get_record(layout, record_id) -> dict
+     async def create_record(layout, field_data, script?, script_param?) -> dict
+     async def update_record(layout, record_id, field_data, mod_id?) -> dict
+     async def delete_record(layout, record_id) -> None
+
+     # Query
+     async def find(layout, query, sort, offset, limit) -> list[dict]
+
+     # Script
+     async def run_script(layout, script_name, script_param?) -> dict
+
+     # Metadata
+     async def get_layouts() -> list[str]
+     async def get_layout_metadata(layout) -> dict
+     async def get_scripts() -> list[str]
+
+     # Container (for OCR)
+     async def upload_container(layout, record_id, field_name, file_path) -> dict
+     async def get_container_url(layout, record_id, field_name) -> str
+
+ 关键文件：
+ - filemaker_gateway/fm/client.py — ~200 行
+ - filemaker_gateway/fm/errors.py — ~30 行
+
+ 配置扩展 (config/schema.py 新增):
+ class FMDataAPIConfig(BaseModel):
+     host: str = ""                # FM Server 地址
+     database: str = ""            # 数据库名
+     username: str = ""            # Data API 用户名
+     password: str = ""            # Data API 密码
+     protocol: str = "https"
+     verify_ssl: bool = True
+
+ Phase 2: 替换 FM Tool Stub（Gateway 侧）
+
+ 将 4 个 stub 替换为真实的 Data API 实现。
+
+ 修改文件：
+ - tool/filemaker/query.py — execute() 调用 fm_client.find() / fm_client.get_records()
+ - tool/filemaker/record.py — execute() 调用 fm_client.create/update/delete_record()
+ - tool/filemaker/script.py — execute() 调用 fm_client.run_script()
+ - tool/filemaker/layout.py — execute() 调用 fm_client.get_layouts()
+
+ 依赖注入： Tools 需要获取 FMDataClient 实例。两种方式：
+ 1. 简单方案：Tools 在 __init__ 时接收全局 fm_client（在 main.py 启动时注入）
+ 2. 优雅方案：Tool.execute() 通过 ToolRegistry 的 runtime context 获取
+
+ 采用简单方案：Tool 初始化时传入 client，ToolLoader 不支持参数的话就改为手动注册。
+
+ 实际改进方案： 修改 ToolLoader.load() 支持传入 keyword arguments 给 tool 构造函数。在 main.py 中：
+ fm_client = FMDataClient(config.fm.host, ...)
+ loader.load(registry, fm_client=fm_client)
+
+ FileMaker 4 个 Tool 的构造函数接受 fm_client 参数：
+ class FileMakerQueryTool(Tool):
+     def __init__(self, fm_client: FMDataClient | None = None):
+         self._fm = fm_client
+
+     async def execute(self, action, layout=None, query=None, limit=100):
+         if self._fm is None:
+             return ToolResult.error("FM Data API not configured")
+         if action == "select":
+             records = await self._fm.get_records(layout, limit=limit)
+             return json.dumps(records, ensure_ascii=False)
+         elif action == "find":
+             records = await self._fm.find(layout, json.loads(query))
+             return json.dumps(records, ensure_ascii=False)
+         ...
+
+ Phase 3: FileMaker 脚本模板（FM 侧）
+
+ 设计 FileMaker 端的脚本，用户可以在自己的 FM 文件中创建。
+
+ 提供 fm_scripts/ 目录，包含可直接粘贴到 FM Script Workspace 的脚本。
+
+ 3.1 AI Chat 脚本
+ # 脚本名: "AI Chat"
+ # 参数: 无（从界面上获取当前字段值）
+
+ Set Variable [$message; Value: MyTable::UserInput]
+ Set Variable [$session; Value: Get(AccountName)]  # 用用户名作为 session key
+
+ Set Variable [$payload; Value: JSONSetElement("{}";
+   ["session"; $session; JSONString];
+   ["message"; $message; JSONString]
+ )]
+
+ Insert From URL [With dialog: Off;
+   Target: $result;
+   URL: "http://127.0.0.1:8080/chat";
+   cURL options: "--header 'Content-Type: application/json' --header 'X-API-Key: filemaker-secret-key-change-me'";
+   Do not encode URL: On]
+
+ Set Variable [$answer; Value: JSONGetElement($result; "answer")]
+ Set Field [MyTable::AIResponse; $answer]
+
+ 3.2 AI OCR 脚本
+ # 脚本名: "AI OCR 发票识别"
+ # 1. 将容器字段图片导出到临时文件
+ # 2. 通过 Insert From URL 发送给 Gateway（传文件路径或 base64）
+ # 3. Gateway OCR Tool 处理 → 返回结构化 JSON
+ # 4. 解析 JSON 填入发票字段
+
+ # FM 侧实现方案:
+ # - 用 Export Field Contents 将容器图片导出到临时文件
+ # - 用 Base64Encode 将图片转 base64
+ # - Insert From URL POST 给 Gateway /chat
+ # - 消息体包含: {"session":"ocr","message":"识别这张发票","media":["data:image/png;base64,..."]}
+
+ 3.3 AI 数据查询脚本
+ # 脚本名: "AI 自然语言查询"
+ # 用户输入自然语言查询 → Gateway → FM Data API → 返回结果
+
+ Set Variable [$query; Value: MyTable::QueryInput]
+ Set Variable [$payload; Value: JSONSetElement("{}";
+   ["session"; $session; JSONString];
+   ["message"; "查询:" & $query; JSONString]
+ )]
+
+ Insert From URL [...]
+ Set Variable [$answer; Value: JSONGetElement($result; "answer")]
+
+ 3.4 容器字段上传图片（用于 OCR）
+ # 方案：Gateway 接收 media URL
+ # FM 先上传图片到临时 HTTP 服务或直接传 base64
+
+ Set Variable [$file; Value: MyTable::InvoiceImage]  # 容器字段
+ Set Variable [$base64; Value: Base64Encode($file)]
+ Set Variable [$message; Value: "请识别这张发票，提取发票号、日期、金额、抬头"]
+
+ Set Variable [$payload; Value: JSONSetElement("{}";
+   ["session"; "ocr-invoice"; JSONString];
+   ["message"; $message; JSONString];
+   ["media"; JSONSetElement("[]"; [0]; "data:image/jpeg;base64," & $base64; JSONString])
+ )]
+
+ Insert From URL [...]
+
+ Phase 4: OCR Tool 实现
+
+ 将 tool/ocr.py 从 stub 升级为真实实现。
+
+ 4.1 GLM OCR 集成
+
+ 如果用户已有 GLM OCR 实现：
+ class OCRTool(Tool):
+     def __init__(self, glm_api_key: str | None = None):
+         self._glm_key = glm_api_key
+
+     async def execute(self, image_url, ocr_type="glm"):
+         if ocr_type == "glm":
+             return await self._glm_ocr(image_url)
+         elif ocr_type == "invoice":
+             return await self._invoice_ocr(image_url)
+         elif ocr_type == "pdf":
+             return await self._pdf_ocr(image_url)
+
+ 4.2 Gateway 接收图片的方式
+
+ Gateway POST /chat 支持 media 字段：
+ {
+   "session": "ocr-123",
+   "message": "请识别这张发票",
+   "media": ["data:image/png;base64,iVBORw0KG..."]
+ }
+
+ 在 AgentLoop._build() 中，将 media 转为 LLM vision 格式：
+ if ctx.media:
+     content = [{"type": "text", "text": user_message}]
+     for media_url in ctx.media:
+         if media_url.startswith("data:image"):
+             content.append({"type": "image_url", "image_url": {"url": media_url}})
+     messages.append({"role": "user", "content": content})
+
+ Phase 5: 端到端工作流与部署
+
+ 5.1 发票 OCR 完整工作流
+ 1. FM 用户拍照/导入发票到容器字段
+ 2. FM 脚本 "AI OCR 发票识别" 运行
+ 3. Base64Encode → Insert From URL → Gateway /chat
+ 4. AgentLoop 收到消息 + 图片
+ 5. LLM 判断需要调用 ocr tool
+ 6. AgentRunner 调用 OCRTool
+ 7. OCR 返回结构化 JSON (发票号/日期/金额/抬头)
+ 8. LLM 整理回复
+ 9. Gateway 返回 answer 给 FM
+ 10. FM 脚本 JSON 解析 → 填入对应字段
+
+ 5.2 AI 查询业务数据工作流
+ 1. FM 用户在输入框输入 "查最近30天的订单，金额大于10000的"
+ 2. FM 脚本 POST /chat
+ 3. LLM 理解意图 → 调用 filemaker_query tool
+ 4. Gateway 通过 Data API 执行 find
+ 5. FM Server 返回订单列表
+ 6. LLM 整理为易读格式
+ 7. Gateway 返回 answer 给 FM
+ 8. FM 展示在结果字段或 Web Viewer 中
+
+ 5.3 配置文件扩展
+ # config.yaml 新增
+ fm_data_api:
+   host: "192.168.1.100"          # FM Server IP
+   database: "MyBusiness"          # 数据库名
+   username: "api_user"            # Data API 用户
+   password: ""                    # 用环境变量 FILEMAKER_GATEWAY_FM_DATA_API_PASSWORD
+   protocol: "https"
+   verify_ssl: true
+   enabled: false                  # 设为 true 启用真实 FM 连接
+
+ 文件变更清单
+
+ ┌────────────────────────────────────────────┬──────┬─────────────────────────────────┐
+ │                    文件                    │ 操作 │              说明               │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/fm/__init__.py           │ 新建 │ FM 模块                         │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/fm/client.py             │ 新建 │ Data API 客户端                 │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/fm/errors.py             │ 新建 │ 错误处理                        │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/config/schema.py         │ 修改 │ 新增 FMDataAPIConfig            │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/config/loader.py         │ 修改 │ 新增 FM 配置加载                │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ config.yaml                                │ 修改 │ 新增 fm_data_api 配置           │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/main.py                  │ 修改 │ 初始化 FMDataClient，注入 Tools │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/loader.py           │ 修改 │ 支持 tool_kwargs 参数传递       │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/filemaker/query.py  │ 修改 │ 真实 Data API 实现              │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/filemaker/record.py │ 修改 │ 真实 Data API 实现              │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/filemaker/script.py │ 修改 │ 真实 Data API 实现              │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/filemaker/layout.py │ 修改 │ 真实 Data API 实现              │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/tool/ocr.py              │ 修改 │ 真实 OCR 实现                   │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ filemaker_gateway/agent/loop.py            │ 修改 │ 支持 media vision 格式          │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ fm_scripts/ 目录                           │ 新建 │ FM 脚本模板                     │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ fm_scripts/AI_Chat.txt                     │ 新建 │ AI Chat 脚本                    │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ fm_scripts/AI_OCR_Invoice.txt              │ 新建 │ OCR 发票脚本                    │
+ ├────────────────────────────────────────────┼──────┼─────────────────────────────────┤
+ │ fm_scripts/AI_NL_Query.txt                 │ 新建 │ 自然语言查询脚本                │
+ └────────────────────────────────────────────┴──────┴─────────────────────────────────┘
+
+ 实现顺序
+
+ 1. Phase 1 — fm/client.py Data API 客户端
+ 2. Phase 2 — 替换 4 个 FM Tool stub → 真实实现
+ 3. Phase 3 — FM 脚本模板（可粘贴到 FM Script Workspace）
+ 4. Phase 4 — OCR Tool + media/vision 支持
+ 5. Phase 5 — 配置整合 + 端到端测试
+
+ 验证方式
+
+ 每个 Phase:
+ - 单元测试（mock Data API 响应）
+ - Phase 1-2: 手动用 httpx 测试 Data API 连接
+ - Phase 3-4: 用 curl 模拟 FM Insert From URL 请求，传 media 测试 OCR
+ - Phase 5: 完整工作流测试（如果 FM Server 可用）
+
+ 与 Part 2 的兼容性
+
+ - fm_data_api.enabled = false 时，FM Tools 自动降级为 stub 模式，Gateway 不受影响
+ - 所有现有 API 端点不变
+ - 测试不依赖真实 FM Server

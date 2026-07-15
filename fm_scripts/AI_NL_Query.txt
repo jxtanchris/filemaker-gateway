@@ -1,0 +1,31 @@
+FileMaker Script: AI Natural Language Query
+============================================
+用途: 用户用自然语言查询数据库，AI 自动执行 filemaker_query tool 并返回结果
+
+前提条件:
+  1. Gateway 运行并已启用 fm_data_api
+  2. 布局上字段:
+     - QueryInput (Text) — 用户的自然语言查询
+     - QueryResult (Text) — AI 整理后的查询结果
+
+脚本步骤:
+  1. Set Variable [$input; Value: MyTable::QueryInput]
+  2. Set Variable [$payload; Value: JSONSetElement("{}";
+       ["session"; "nl_query_" & Get(AccountName); JSONString];
+       ["message"; "查询数据库：" & $input; JSONString]
+     )]
+  3. Set Variable [$api_key; Value: "filemaker-secret-key-change-me"]
+  4. Insert From URL [
+       Select; With dialog: Off; Target: $result;
+       $payload;
+       cURL options: "--header \"X-API-Key: " & $api_key & "\" --header \"Content-Type: application/json\"";
+       "http://127.0.0.1:8080/chat"
+     ]
+  5. Set Variable [$answer; Value: JSONGetElement($result; "answer")]
+  6. Set Field [MyTable::QueryResult; $answer]
+  7. Exit Script [Text Result: $answer]
+
+示例查询:
+  - "找出所有北京客户，按创建日期降序排列"
+  - "上个月新增了多少条记录？"
+  - "把张三的电话号码更新为 13800138000"

@@ -1,0 +1,53 @@
+FileMaker Script: AI OCR Invoice
+=================================
+用途: 对容器字段中的发票图片进行 OCR 识别，提取结构化数据写入字段
+
+前提条件:
+  1. Gateway 运行并已配置 Provider (支持 Vision 的模型)
+  2. 布局上有以下字段:
+     - InvoiceImage (Container) — 发票图片
+     - InvoiceNumber (Text) — 发票号
+     - InvoiceDate (Date) — 开票日期
+     - InvoiceAmount (Number) — 金额
+     - InvoiceSeller (Text) — 销售方
+     - OCRResult (Text) — 原始 OCR 结果 (JSON)
+
+脚本步骤:
+  1. If [IsEmpty(MyTable::InvoiceImage)]
+  2.   Exit Script [Text Result: "Error: No image in container field"]
+  3. End If
+  4. # 将容器字段内容转为 Base64
+  5. Set Variable [$base64; Value: Base64Encode(MyTable::InvoiceImage)]
+  6. Set Variable [$image_url; Value: "data:image/png;base64," & $base64]
+  7. # 构造带 media 的请求
+  8. Set Variable [$payload; Value: JSONSetElement("{}";
+       ["session"; "ocr_invoice_" & Get(AccountName); JSONString];
+       ["message"; "识别这张发票"; JSONString];
+       ["media"; JSONSetElement("[]";
+         [0; $image_url; JSONString]
+       ); JSONArray]
+     )]
+  9. Set Variable [$api_key; Value: "filemaker-secret-key-change-me"]
+  10. Insert From URL [
+        Select; With dialog: Off; Target: $result;
+        $payload;
+        cURL options: "--header \"X-API-Key: " & $api_key & "\" --header \"Content-Type: application/json\"";
+        "http://127.0.0.1:8080/chat"
+      ]
+  11. # 解析 OCR 结果
+  12. Set Variable [$raw_answer; Value: JSONGetElement($result; "answer")]
+  13. Set Field [MyTable::OCRResult; $raw_answer]
+  14. # 如果 AI 返回了 JSON，解析各字段
+  15. Set Variable [$inv_num; Value: JSONGetElement($raw_answer; "invoice_number")]
+  16. If [not IsEmpty($inv_num)]
+  17.   Set Field [MyTable::InvoiceNumber; $inv_num]
+  18.   Set Field [MyTable::InvoiceDate; JSONGetElement($raw_answer; "date")]
+  19.   Set Field [MyTable::InvoiceAmount; JSONGetElement($raw_answer; "amount")]
+  20.   Set Field [MyTable::InvoiceSeller; JSONGetElement($raw_answer; "seller")]
+  21. End If
+  22. Exit Script [Text Result: $raw_answer]
+
+注意:
+  - 容器字段中的图片格式建议为 PNG 或 JPEG
+  - AI 可能需要几秒处理 OCR，注意 Insert From URL 超时
+  - 如果 AI 未返回结构化 JSON，OCRResult 将包含非结构化的识别文字

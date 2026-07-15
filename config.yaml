@@ -1,0 +1,36 @@
+gateway:
+  host: "127.0.0.1"
+  port: 8080
+  api_key: ""  # set via FILEMAKER_GATEWAY_API_KEY env var
+  log_level: "INFO"
+
+  provider:
+    name: "deepseek"
+    model: "deepseek-v4-pro"
+    api_key: ""  # set via FILEMAKER_GATEWAY_PROVIDER_API_KEY env var
+    # api_base: set via FILEMAKER_GATEWAY_PROVIDER_API_BASE env var (optional)
+
+  tools:
+    filemaker_query: true
+    filemaker_record: true
+    filemaker_script: true
+    filemaker_layout: true
+    ocr: true
+    sql_query: true
+
+database:
+  url: "sqlite+aiosqlite:///./data/sessions.db"
+
+system_prompt: |
+  你是一个集成在 FileMaker 中的 AI 助手。
+  你可以查询和操作数据库记录、运行脚本、处理文档。
+  对数据的任何修改操作之前，先向用户确认。
+
+fm_data_api:
+  enabled: false
+  host: ""
+  database: ""
+  username: ""
+  password: ""  # 推荐用 FILEMAKER_GATEWAY_FM_DATA_API_PASSWORD 环境变量
+  protocol: "https"
+  verify_ssl: true

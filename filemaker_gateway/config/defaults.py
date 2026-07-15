@@ -1,0 +1,19 @@
+"""Sensible default values for configuration."""
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8080
+DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./data/sessions.db"
+DEFAULT_MAX_ITERATIONS = 10
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+
+# FileMaker Data API defaults
+DEFAULT_FM_HOST = ""
+DEFAULT_FM_DATABASE = ""
+DEFAULT_FM_USERNAME = ""
+DEFAULT_FM_PASSWORD = ""
+DEFAULT_FM_PROTOCOL = "https"
+DEFAULT_FM_VERIFY_SSL = True
+DEFAULT_FM_ENABLED = False
