@@ -348,15 +348,8 @@ async function sendMessage() {
     if (data.detail) {
       appendMessage('assistant', '❌ ' + data.detail, true);
     } else {
-      // Show tool calls
-      if (data.tool_calls && data.tool_calls.length > 0) {
-        const toolsHtml = data.tool_calls.map(tc =>
-          `<div class="tool-call"><span class="tc-name">🔧 ${tc.name}</span><div class="tc-args">${JSON.stringify(tc.arguments)}</div></div>`
-        ).join('');
-        appendMessage('assistant', toolsHtml + '\n\n' + (data.answer || ''), false, true);
-      } else {
-        appendMessage('assistant', data.answer || '(空回复)');
-      }
+      // Tool calls are executed transparently — only show the final answer
+      appendMessage('assistant', data.answer || '(空回复)');
     }
   } catch(e) {
     typing.remove();
