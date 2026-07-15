@@ -1,13 +1,17 @@
 """REST API routes.
 
 Routes:
+    GET  /              - Chat console (Web UI)
     POST /chat          - Send a message, get AI response
     GET  /health        - Health check
     GET  /sessions      - List sessions
     GET  /sessions/{id} - Session detail with message history
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from filemaker_gateway.agent.loop import AgentLoop
@@ -37,6 +41,17 @@ def create_router(config: AppConfig) -> APIRouter:
             before full dependency injection is set up).
     """
     router = APIRouter()
+
+    # --- Console (Web UI) ---
+
+    # Load the chat console HTML once at module load time
+    _console_path = Path(__file__).parent / "console.html"
+    _CONSOLE_HTML = _console_path.read_text(encoding="utf-8") if _console_path.exists() else "<h1>console.html not found</h1>"
+
+    @router.get("/", response_class=HTMLResponse)
+    async def console() -> HTMLResponse:
+        """Serve the chat console (Web UI for testing)."""
+        return HTMLResponse(_CONSOLE_HTML)
 
     # --- Health ---
 

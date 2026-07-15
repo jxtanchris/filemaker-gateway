@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FileMaker AI Gateway — 测试控制台</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --surface: #fff;
+    --text: #1a1a1a;
+    --muted: #888;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --border: #e5e5e5;
+    --user-bubble: #2563eb;
+    --user-text: #fff;
+    --bot-bubble: #fff;
+    --bot-text: #1a1a1a;
+    --error: #dc2626;
+    --tool-bg: #f0fdf4;
+    --tool-border: #86efac;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 260px; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h1 { font-size: 16px; font-weight: 600; }
+  .sidebar-header .ver { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sidebar-stats { padding: 12px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .sidebar-stats span { display: block; margin-bottom: 2px; }
+  .sidebar-stats .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; margin-right: 4px; }
+  .sidebar-body { flex: 1; overflow-y: auto; padding: 8px; }
+  .sidebar-body .section-title { font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 8px 4px; letter-spacing: 0.5px; }
+  .tool-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-radius: 6px; font-size: 13px; cursor: default;
+  }
+  .tool-item .icon { font-size: 16px; }
+  .tool-item .badge { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 99px; }
+  .badge-live { background: #dcfce7; color: #166534; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .header {
+    padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; font-size: 14px;
+  }
+  .header input {
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+    font-size: 13px; width: 180px; outline: none;
+  }
+  .header input:focus { border-color: var(--accent); }
+  .header button {
+    font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer;
+  }
+  .header button:hover { background: var(--bg); }
+
+  /* Messages */
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 80%; animation: fadeIn 0.2s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .msg.user { align-self: flex-end; }
+  .msg.user .bubble { background: var(--user-bubble); color: var(--user-text); border-radius: 18px 18px 4px 18px; padding: 10px 16px; font-size: 14px; line-height: 1.5; }
+  .msg.assistant { align-self: flex-start; }
+  .msg.assistant .bubble { background: var(--bot-bubble); color: var(--bot-text); border-radius: 18px 18px 18px 4px; padding: 10px 16px; font-size: 14px; line-height: 1.6; border: 1px solid var(--border); }
+  .msg.assistant .bubble p { margin-bottom: 8px; }
+  .msg.assistant .bubble p:last-child { margin-bottom: 0; }
+  .msg.assistant .bubble pre { background: #f8f8f8; border-radius: 8px; padding: 10px; font-size: 12px; overflow-x: auto; margin: 8px 0; }
+  .msg.assistant .bubble code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+
+  /* Tool calls in messages */
+  .tool-call {
+    margin: 8px 0; padding: 8px 12px; background: var(--tool-bg);
+    border: 1px solid var(--tool-border); border-radius: 8px; font-size: 12px;
+  }
+  .tool-call .tc-name { font-weight: 600; color: #166534; }
+  .tool-call .tc-args { color: var(--muted); font-family: monospace; font-size: 11px; margin-top: 2px; word-break: break-all; }
+
+  .typing { align-self: flex-start; font-size: 13px; color: var(--muted); padding: 8px 16px; }
+
+  /* Input */
+  .input-area { padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
+  .input-area textarea {
+    flex: 1; border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px;
+    font-size: 14px; resize: none; outline: none; font-family: inherit; line-height: 1.4;
+    min-height: 42px; max-height: 120px;
+  }
+  .input-area textarea:focus { border-color: var(--accent); }
+  .input-area button {
+    background: var(--accent); color: #fff; border: none; border-radius: 12px;
+    padding: 10px 20px; font-size: 14px; cursor: pointer; font-weight: 500;
+    flex-shrink: 0;
+  }
+  .input-area button:hover { background: var(--accent-hover); }
+  .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .input-area .media-btn {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    padding: 10px 14px; font-size: 18px; cursor: pointer;
+  }
+  .input-area .media-btn:hover { background: var(--bg); }
+  .media-preview { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 8px; }
+  .media-preview .chip {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
+  }
+  .media-preview .chip button { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>🧠 AI Gateway</h1>
+    <div class="ver">v0.1.0 · DeepSeek v4-pro</div>
+  </div>
+  <div class="sidebar-stats">
+    <span><span class="dot"></span> 127.0.0.1:8080</span>
+    <span id="tool-count">加载中…</span>
+  </div>
+  <div class="sidebar-body">
+    <div class="section-title">已注册工具</div>
+    <div id="tool-list"></div>
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <div class="header">
+    💬 会话:
+    <input type="text" id="sessionId" value="demo" placeholder="session-id">
+    <button onclick="newSession()">➕ 新建会话</button>
+    <button onclick="loadSessions()" style="margin-left:auto">📋 历史</button>
+  </div>
+  <div class="messages" id="messages">
+    <div style="text-align:center;color:var(--muted);margin-top:60px">
+      <div style="font-size:48px;margin-bottom:16px">🧠</div>
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">FileMaker AI Gateway 测试控制台</div>
+      <div style="font-size:13px">在下方输入消息开始测试</div>
+    </div>
+  </div>
+  <div class="media-preview" id="media-preview"></div>
+  <div class="input-area">
+    <button class="media-btn" onclick="document.getElementById('mediaInput').click()" title="添加图片">🖼️</button>
+    <input type="file" id="mediaInput" accept="image/*" style="display:none" onchange="addMedia(event)">
+    <textarea id="userInput" rows="1" placeholder="输入消息… (Enter 发送, Shift+Enter 换行)"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
+    <button id="sendBtn" onclick="sendMessage()">发送</button>
+  </div>
+</div>
+
+<!-- Session List Modal -->
+<div id="sessionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:100;justify-content:center;align-items:center">
+  <div style="background:#fff;border-radius:16px;padding:24px;width:400px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3>📋 会话列表</h3>
+      <button onclick="document.getElementById('sessionModal').style.display='none'" style="background:none;border:none;font-size:20px;cursor:pointer">&times;</button>
+    </div>
+    <div id="sessionList"></div>
+  </div>
+</div>
+
+<script>
+const API = 'http://127.0.0.1:8080';
+const API_KEY = 'filemaker-secret-key-change-me';
+let mediaFiles = [];
+
+// --- Init ---
+fetch(API + '/health').then(r => r.json()).then(data => {
+  document.getElementById('tool-count').innerHTML = `<span class="dot"></span> ${data.tools.length} tools · ${data.provider}`;
+  const list = document.getElementById('tool-list');
+  const icons = { filemaker_query:'🔍', filemaker_record:'📝', filemaker_script:'⚡', filemaker_layout:'📐', ocr:'👁️', sql_query:'🗄️', echo:'📢' };
+  data.tools.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'tool-item';
+    div.innerHTML = `<span class="icon">${icons[t]||'🔧'}</span>${t}<span class="badge badge-live">live</span>`;
+    list.appendChild(div);
+  });
+});
+
+// --- Chat ---
+async function sendMessage() {
+  const input = document.getElementById('userInput');
+  const msg = input.value.trim();
+  if (!msg && mediaFiles.length === 0) return;
+
+  const session = document.getElementById('sessionId').value.trim() || 'demo';
+  const btn = document.getElementById('sendBtn');
+
+  // Show user message
+  if (msg) appendMessage('user', msg);
+
+  // Show media
+  if (mediaFiles.length > 0) {
+    appendMessage('user', '📷 ' + mediaFiles.map(m => m.name).join(', '));
+  }
+
+  input.value = '';
+  input.style.height = 'auto';
+  btn.disabled = true;
+
+  // Show typing indicator
+  const typing = document.createElement('div');
+  typing.className = 'typing';
+  typing.textContent = '思考中…';
+  document.getElementById('messages').appendChild(typing);
+  scrollDown();
+
+  try {
+    const body = { session, message: msg || '请分析这张图片' };
+    if (mediaFiles.length > 0) {
+      body.media = await Promise.all(mediaFiles.map(toBase64));
+    }
+
+    const resp = await fetch(API + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+      body: JSON.stringify(body)
+    });
+
+    const data = await resp.json();
+    typing.remove();
+
+    if (data.detail) {
+      appendMessage('assistant', '❌ ' + data.detail, true);
+    } else {
+      // Show tool calls
+      if (data.tool_calls && data.tool_calls.length > 0) {
+        const toolsHtml = data.tool_calls.map(tc =>
+          `<div class="tool-call"><span class="tc-name">🔧 ${tc.name}</span><div class="tc-args">${JSON.stringify(tc.arguments)}</div></div>`
+        ).join('');
+        appendMessage('assistant', toolsHtml + '\n\n' + (data.answer || ''), false, true);
+      } else {
+        appendMessage('assistant', data.answer || '(空回复)');
+      }
+    }
+  } catch(e) {
+    typing.remove();
+    appendMessage('assistant', '❌ 连接失败: ' + e.message, true);
+  }
+
+  btn.disabled = false;
+  mediaFiles = [];
+  document.getElementById('media-preview').innerHTML = '';
+  input.focus();
+}
+
+function appendMessage(role, content, isError = false, hasTool = false) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (isError) bubble.style.background = '#fef2f2';
+  if (hasTool) bubble.innerHTML = content;
+  else bubble.textContent = content;
+  div.appendChild(bubble);
+  document.getElementById('messages').appendChild(div);
+  scrollDown();
+}
+
+function scrollDown() {
+  const el = document.getElementById('messages');
+  setTimeout(() => el.scrollTop = el.scrollHeight, 50);
+}
+
+// --- Textarea auto-resize ---
+document.getElementById('userInput').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// --- Media ---
+async function toBase64(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+function addMedia(event) {
+  const files = Array.from(event.target.files);
+  mediaFiles.push(...files);
+  const preview = document.getElementById('media-preview');
+  preview.innerHTML = mediaFiles.map((f, i) =>
+    `<div class="chip">🖼️ ${f.name} <button onclick="removeMedia(${i})">×</button></div>`
+  ).join('');
+  event.target.value = '';
+}
+
+function removeMedia(i) {
+  mediaFiles.splice(i, 1);
+  document.getElementById('media-preview').innerHTML = mediaFiles.map((f, i) =>
+    `<div class="chip">🖼️ ${f.name} <button onclick="removeMedia(${i})">×</button></div>`
+  ).join('');
+}
+
+// --- Session ---
+function newSession() {
+  const id = 'sess-' + Date.now();
+  document.getElementById('sessionId').value = id;
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('messages').innerHTML = '<div style="text-align:center;color:var(--muted);margin-top:60px"><div style="font-size:16px">新会话: ' + id + '</div></div>';
+}
+
+async function loadSessions() {
+  const modal = document.getElementById('sessionModal');
+  const list = document.getElementById('sessionList');
+  modal.style.display = 'flex';
+
+  try {
+    const resp = await fetch(API + '/sessions', { headers: { 'X-API-Key': API_KEY } });
+    const sessions = await resp.json();
+    if (sessions.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">暂无会话</div>';
+    } else {
+      list.innerHTML = sessions.map(s => `
+        <div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer"
+             onclick="document.getElementById('sessionId').value='${s.id}';document.getElementById('sessionModal').style.display='none';loadSessionDetail('${s.id}')">
+          <div style="font-weight:500;font-size:13px">${s.id}</div>
+          <div style="font-size:11px;color:var(--muted)">${s.message_count} 条消息 · ${new Date(s.updated_at).toLocaleString()}</div>
+        </div>
+      `).join('');
+    }
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--error)">加载失败</div>';
+  }
+}
+
+async function loadSessionDetail(id) {
+  try {
+    const resp = await fetch(API + '/sessions/' + id, { headers: { 'X-API-Key': API_KEY } });
+    const detail = await resp.json();
+    const msgs = document.getElementById('messages');
+    msgs.innerHTML = '';
+    if (detail.messages) {
+      detail.messages.forEach(m => {
+        if (m.role === 'user') appendMessage('user', m.content);
+        else appendMessage('assistant', m.content);
+      });
+    }
+  } catch(e) {}
+}
+</script>
+</body>
+</html>

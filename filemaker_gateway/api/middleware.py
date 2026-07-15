@@ -22,8 +22,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._api_key = api_key
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Skip auth for health check
-        if request.url.path == "/health":
+        # Skip auth for health check and console
+        if request.url.path in ("/health", "/"):
             return await call_next(request)
 
         # Validate API key
