@@ -1,8 +1,13 @@
 """Entry point for `python -m filemaker_gateway`."""
 
 import uvicorn
+from dotenv import load_dotenv
+
 from filemaker_gateway.main import create_app
 from filemaker_gateway.config.loader import load_config
+
+# Load .env before reading config (so env vars override config.yaml)
+load_dotenv()
 
 
 def main() -> None:
