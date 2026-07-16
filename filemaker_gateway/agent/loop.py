@@ -10,7 +10,7 @@ The AgentLoop owns the channel-facing turn lifecycle:
 5. RESPOND — build the API response payload
 
 The loop does NOT interact with providers or tools directly.
-That's the runner's responsibility.
+Image preprocessing is delegated to MediaPreprocessor.
 """
 
 import json
@@ -21,6 +21,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from filemaker_gateway.agent.preprocessor import MediaPreprocessError, MediaPreprocessor
 from filemaker_gateway.agent.result import AgentRunResult
 from filemaker_gateway.agent.runner import AgentRunner
 from filemaker_gateway.agent.spec import AgentRunSpec
@@ -103,6 +104,7 @@ class AgentLoop:
         self._max_iterations = max_iterations
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._preprocessor = MediaPreprocessor(tool_registry, provider)
 
     async def process_turn(
         self,
@@ -183,9 +185,8 @@ class AgentLoop:
     async def _build(self, ctx: TurnContext) -> TurnState:
         """Build the initial_messages list for the runner.
 
-        Supports vision format: when ctx.media contains data:image URLs,
-        constructs a content list with text + image_url blocks.
-        Non-image media URLs are appended as text references.
+        Image preprocessing is delegated to MediaPreprocessor to keep
+        AgentLoop free of direct Tool and Provider access.
         """
         messages: list[dict[str, Any]] = []
 
@@ -196,33 +197,19 @@ class AgentLoop:
         # History (previous turns)
         messages.extend(ctx.history)
 
-        # Current user message — support vision format when images are attached
-        image_media = [m for m in ctx.media if m.startswith("data:image")]
-        other_media = [m for m in ctx.media if not m.startswith("data:image")]
+        # Current user message — delegate media handling to preprocessor
+        try:
+            content = await self._preprocessor.build_user_content(
+                ctx.user_message, ctx.media
+            )
+        except MediaPreprocessError as e:
+            ctx.answer = str(e)
+            ctx.stop_reason = "error"
+            ctx.initial_messages = messages
+            logger.error("Media preprocessing failed: {}", e)
+            return TurnState.RESPOND
 
-        if image_media:
-            # Build vision-compatible content list
-            content: list[dict[str, Any]] = [
-                {"type": "text", "text": ctx.user_message}
-            ]
-            for url in image_media:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": url},
-                })
-            # Non-image URLs are included as text references
-            if other_media:
-                refs = "\n".join(f"[media: {url}]" for url in other_media)
-                content.append({"type": "text", "text": refs})
-
-            messages.append({"role": "user", "content": content})
-        else:
-            # Plain text format (backward compatible)
-            user_content = ctx.user_message
-            if other_media:
-                media_str = "\n".join(f"[media: {url}]" for url in other_media)
-                user_content = f"{media_str}\n{user_content}"
-            messages.append({"role": "user", "content": user_content})
+        messages.append({"role": "user", "content": content})
 
         ctx.initial_messages = messages
         logger.debug("Built {} initial messages", len(messages))
@@ -274,7 +261,9 @@ class AgentLoop:
     def _respond(self, ctx: TurnContext) -> TurnState:
         """Build the final TurnResult payload."""
         if ctx.run_result is None:
-            ctx.answer = ""
+            # Preserve answer if already set (e.g. by _build for image/OCR errors)
+            if not ctx.answer:
+                ctx.answer = ""
             ctx.stop_reason = "error"
             return TurnState.DONE
 

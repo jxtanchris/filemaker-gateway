@@ -18,6 +18,12 @@ DEFAULT_FM_PROTOCOL = "https"
 DEFAULT_FM_VERIFY_SSL = True
 DEFAULT_FM_ENABLED = False
 
+# OCR defaults
+DEFAULT_OCR_ENGINE = "provider"  # "ollama" or "provider"
+DEFAULT_OCR_OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_OCR_OLLAMA_MODEL = "glm-ocr:latest"
+DEFAULT_OCR_OLLAMA_TIMEOUT = 120.0
+
 # FileMaker OData defaults
 DEFAULT_FM_ODATA_HOST = ""
 DEFAULT_FM_ODATA_DATABASE = ""

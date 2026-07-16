@@ -21,8 +21,9 @@ class OpenAICompatProvider(LLMProvider):
         api_base: str | None = None,
         default_model: str = "gpt-4o",
         timeout: float = 120.0,
+        supports_vision: bool = False,
     ) -> None:
-        super().__init__(api_key, api_base)
+        super().__init__(api_key, api_base, supports_vision=supports_vision)
         self._default_model = default_model
 
         # AsyncOpenAI client — works with any OpenAI-compatible endpoint

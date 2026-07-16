@@ -11,6 +11,8 @@ from filemaker_gateway.config.schema import (
     FMDataAPIConfig,
     FMODataConfig,
     GatewayConfig,
+    OCROllamaConfig,
+    OCRConfig,
     ProviderConfig,
     ToolConfig,
 )
@@ -95,6 +97,9 @@ def load_config(config_path: str | None = None) -> AppConfig:
                 enabled=fo.get("enabled", config.fm_odata.enabled),
             )
 
+        if "ocr" in raw:
+            config.ocr = _parse_ocr(raw["ocr"])
+
         if "system_prompt" in raw:
             config.system_prompt = raw["system_prompt"]
 
@@ -136,6 +141,19 @@ def _parse_tools(raw: dict) -> ToolConfig:
         filemaker_layout=raw.get("filemaker_layout", True),
         ocr=raw.get("ocr", True),
         sql_query=raw.get("sql_query", True),
+    )
+
+
+def _parse_ocr(raw: dict) -> OCRConfig:
+    """Parse OCR config from YAML dict."""
+    ollama_raw = raw.get("ollama", {})
+    return OCRConfig(
+        engine=raw.get("engine", "provider"),
+        ollama=OCROllamaConfig(
+            base_url=ollama_raw.get("base_url", "http://localhost:11434"),
+            model=ollama_raw.get("model", "glm-ocr:latest"),
+            timeout=ollama_raw.get("timeout", 120.0),
+        ),
     )
 
 
@@ -184,3 +202,9 @@ def _apply_env_overrides(config: AppConfig) -> None:
     _set_if_present("FM_ODATA_PROTOCOL", config.fm_odata, "protocol")
     _set_if_present("FM_ODATA_VERIFY_SSL", config.fm_odata, "verify_ssl", lambda v: v.lower() == "true")
     _set_if_present("FM_ODATA_ENABLED", config.fm_odata, "enabled", lambda v: v.lower() == "true")
+
+    # OCR
+    _set_if_present("OCR_ENGINE", config.ocr, "engine")
+    _set_if_present("OCR_OLLAMA_BASE_URL", config.ocr.ollama, "base_url")
+    _set_if_present("OCR_OLLAMA_MODEL", config.ocr.ollama, "model")
+    _set_if_present("OCR_OLLAMA_TIMEOUT", config.ocr.ollama, "timeout", float)

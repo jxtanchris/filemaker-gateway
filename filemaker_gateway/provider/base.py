@@ -45,9 +45,15 @@ class LLMProvider(ABC):
     is handled by subclasses.
     """
 
-    def __init__(self, api_key: str, api_base: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        api_base: str | None = None,
+        supports_vision: bool = False,
+    ) -> None:
         self._api_key = api_key
         self._api_base = api_base
+        self.supports_vision = supports_vision
 
     @abstractmethod
     async def chat(

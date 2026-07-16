@@ -43,3 +43,10 @@ fm_odata:
   password: ""
   protocol: "https"
   verify_ssl: true
+
+ocr:
+  engine: "ollama"  # "ollama" for local GLM-OCR, "provider" for main LLM Vision
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "glm-ocr:latest"
+    timeout: 120

@@ -1,9 +1,16 @@
-"""OCRTool: Extract text from images using LLM Vision."""
+"""OCRTool: Extract text from images using local Ollama GLM-OCR or LLM Vision."""
 
-from filemaker_gateway.provider.base import LLMProvider
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from filemaker_gateway.tool.base import Tool, ToolResult
 
-# Prompt templates for different OCR modes
+if TYPE_CHECKING:
+    from filemaker_gateway.ocr.client import OllamaOCRClient
+    from filemaker_gateway.provider.base import LLMProvider
+
+# Prompt templates for LLM Vision provider mode
 _GLM_PROMPT = "请识别并提取这张图片中的所有文字。保留原始格式和排版。"
 _INVOICE_PROMPT = (
     "请从这张发票图片中提取以下结构化信息，以 JSON 格式返回：\n"
@@ -25,10 +32,21 @@ _PDF_NOTE = (
 
 
 class OCRTool(Tool):
-    """Extract text from images using LLM Vision (via the configured Provider)."""
+    """Extract text from images using local Ollama GLM-OCR or LLM Vision.
 
-    def __init__(self, provider: LLMProvider | None = None) -> None:
+    Dual-engine design:
+    - When ollama_client is available and image is a data URI,
+      use local Ollama GLM-OCR (fast, free, specialized).
+    - Otherwise fall back to the main LLM provider's Vision API.
+    """
+
+    def __init__(
+        self,
+        provider: LLMProvider | None = None,
+        ollama_client: OllamaOCRClient | None = None,
+    ) -> None:
         self._provider = provider
+        self._ollama = ollama_client
         self._model = provider.get_default_model() if provider else "deepseek-chat"
 
     @property
@@ -74,14 +92,49 @@ class OCRTool(Tool):
         image_url: str,
         ocr_type: str = "glm",
     ) -> ToolResult | str:
-        if self._provider is None:
-            return ToolResult.error(
-                "OCR 未启用 (Provider 未注入，请检查配置)"
-            )
-
         if ocr_type == "pdf":
             return ToolResult.error(_PDF_NOTE)
 
+        # --- Engine 1: Local Ollama GLM-OCR (preferred) ---
+        if self._ollama is not None and self._ollama.is_data_uri(image_url):
+            return await self._execute_ollama(image_url, ocr_type)
+
+        # --- Engine 2: Main LLM Provider Vision API (fallback) ---
+        if self._provider is not None:
+            return await self._execute_provider(image_url, ocr_type)
+
+        return ToolResult.error(
+            "OCR 未启用 (没有可用的 OCR 引擎，请检查配置)"
+        )
+
+    async def _execute_ollama(
+        self,
+        image_url: str,
+        ocr_type: str,
+    ) -> ToolResult | str:
+        """Execute OCR via local Ollama GLM-OCR."""
+        from filemaker_gateway.ocr.client import OllamaOCRClient
+
+        try:
+            image_base64 = OllamaOCRClient.extract_base64(image_url)
+            # Map tool ocr_type to GLM-OCR mode
+            if ocr_type == "invoice":
+                mode = "invoice"
+            else:
+                mode = "glm"  # "glm" maps to Chinese general prompt in client
+
+            result = await self._ollama.recognize(image_base64, mode=mode)
+            return ToolResult(result)
+
+        except Exception as e:
+            return ToolResult.error(f"Ollama OCR 失败: {e}")
+
+    async def _execute_provider(
+        self,
+        image_url: str,
+        ocr_type: str,
+    ) -> ToolResult | str:
+        """Execute OCR via the main LLM provider's Vision API."""
         # Build OCR prompt
         if ocr_type == "invoice":
             user_text = _INVOICE_PROMPT
@@ -91,29 +144,17 @@ class OCRTool(Tool):
         # Build vision-format content
         content: list[dict] = [
             {"type": "text", "text": user_text},
+            {"type": "image_url", "image_url": {"url": image_url}},
         ]
 
-        # Handle both data URIs and regular URLs
-        if image_url.startswith("data:image"):
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": image_url},
-            })
-        else:
-            # Regular URL — the model may or may not support fetching it
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": image_url},
-            })
-
         try:
-            response = await self._provider.chat(
+            response = await self._provider.chat(  # type: ignore[union-attr]
                 messages=[
                     {"role": "system", "content": "你是一个精确的 OCR 和文档识别助手。"},
                     {"role": "user", "content": content},
                 ],
                 model=self._model,
-                temperature=0.1,  # Low temperature for accuracy
+                temperature=0.1,
                 max_tokens=4096,
             )
 

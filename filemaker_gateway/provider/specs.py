@@ -17,6 +17,7 @@ class ProviderSpec:
     default_api_base: str      # Default API endpoint
     default_model: str         # Default model name
     display_name: str          # Human-readable name
+    supports_vision: bool = False  # Whether the provider natively supports image_url in messages
 
 
 # Registry of known providers
@@ -36,6 +37,7 @@ PROVIDER_SPECS: list[ProviderSpec] = [
         default_api_base="https://api.openai.com/v1",
         default_model="gpt-4o",
         display_name="OpenAI GPT",
+        supports_vision=True,
     ),
     ProviderSpec(
         name="glm",
@@ -44,6 +46,7 @@ PROVIDER_SPECS: list[ProviderSpec] = [
         default_api_base="https://open.bigmodel.cn/api/paas/v4",
         default_model="glm-4-flash",
         display_name="智谱 GLM",
+        supports_vision=True,
     ),
     ProviderSpec(
         name="claude",
@@ -52,6 +55,7 @@ PROVIDER_SPECS: list[ProviderSpec] = [
         default_api_base="https://api.anthropic.com",
         default_model="claude-sonnet-4-20250514",
         display_name="Anthropic Claude",
+        supports_vision=True,
     ),
     ProviderSpec(
         name="gemini",
@@ -60,6 +64,7 @@ PROVIDER_SPECS: list[ProviderSpec] = [
         default_api_base="https://generativelanguage.googleapis.com/v1beta/openai",
         default_model="gemini-2.0-flash",
         display_name="Google Gemini",
+        supports_vision=True,
     ),
     ProviderSpec(
         name="ollama",

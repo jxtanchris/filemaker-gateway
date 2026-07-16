@@ -67,6 +67,7 @@ class TestAgentLoopVision:
         self, mock_session_manager, tool_registry, mock_provider, mock_runner
     ):
         """With base64 image media, _build should use vision content list."""
+        mock_provider.supports_vision = True
         loop = AgentLoop(
             session_manager=mock_session_manager,
             tool_registry=tool_registry,
@@ -126,6 +127,7 @@ class TestAgentLoopVision:
         self, mock_session_manager, tool_registry, mock_provider, mock_runner
     ):
         """Mix of image and non-image media should use vision format for images."""
+        mock_provider.supports_vision = True
         loop = AgentLoop(
             session_manager=mock_session_manager,
             tool_registry=tool_registry,

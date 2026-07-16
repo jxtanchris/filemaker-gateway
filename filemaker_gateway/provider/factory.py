@@ -53,6 +53,7 @@ def make_provider(config: ProviderConfig) -> LLMProvider:
             api_key=api_key,
             api_base=api_base,
             default_model=model or "gpt-4o",
+            supports_vision=spec.supports_vision if spec else False,
         )
         logger.info(
             "Created provider: {} (model={}, base={})",

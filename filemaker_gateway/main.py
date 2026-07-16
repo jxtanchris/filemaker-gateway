@@ -11,6 +11,7 @@ from filemaker_gateway.api.router import create_router
 from filemaker_gateway.config.schema import AppConfig
 from filemaker_gateway.fm.client import FMDataClient
 from filemaker_gateway.fm.client_odata import FMODataClient
+from filemaker_gateway.ocr.client import OllamaOCRClient
 from filemaker_gateway.provider.factory import make_provider
 from filemaker_gateway.session.database import close_database, create_tables, init_database
 from filemaker_gateway.tool.loader import ToolLoader
@@ -68,17 +69,35 @@ def create_app(config: AppConfig) -> FastAPI:
         else:
             logger.info("FM API disabled — FM Tools will return stub errors")
 
-        # 4. Tools (with dependency injection)
+        # 4. OCR engine (optional local Ollama GLM-OCR)
+        ollama_client: OllamaOCRClient | None = None
+        if config.ocr.engine == "ollama":
+            ollama_client = OllamaOCRClient(
+                base_url=config.ocr.ollama.base_url,
+                model=config.ocr.ollama.model,
+                timeout=config.ocr.ollama.timeout,
+            )
+            logger.info(
+                "OCR engine: Ollama GLM-OCR (model={}, base={})",
+                config.ocr.ollama.model,
+                config.ocr.ollama.base_url,
+            )
+        else:
+            logger.info("OCR engine: main LLM provider ({})", config.gateway.provider.name)
+
+        # 5. Tools (with dependency injection)
         tool_registry = ToolRegistry()
         loader = ToolLoader()
         tool_kwargs: dict = {}
         if fm_client is not None:
             tool_kwargs["fm_client"] = fm_client
-        tool_kwargs["provider"] = provider  # for OCRTool
+        tool_kwargs["provider"] = provider  # for OCRTool fallback
+        if ollama_client is not None:
+            tool_kwargs["ollama_client"] = ollama_client  # for OCRTool primary
         names = loader.load(tool_registry, **tool_kwargs)
         logger.info("Loaded {} tools: {}", len(names), names)
 
-        # 5. Wire dependencies for API
+        # 6. Wire dependencies for API
         init_dependencies(config, tool_registry, provider)
         logger.info("Dependencies wired")
 
