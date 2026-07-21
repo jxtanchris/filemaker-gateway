@@ -1,4 +1,7 @@
-update part3.txt on main 
+update part3.txt on main
+
+update part3.txt on branch feat/ocr-dual-engine
+
 Context
   
  Part 2 已完成 Gateway 核心引擎，4 个 FileMaker Tools 为 stub。Part 3 目标：
