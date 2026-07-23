@@ -222,6 +222,38 @@
   }
   .media-preview .chip button { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--muted); padding: 0; line-height: 1; }
   .media-preview .chip button:hover { color: var(--error); }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65);
+    z-index: 100; justify-content: center; align-items: center;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .modal-overlay.open { display: flex; animation: fadeIn 0.2s ease-out; }
+  .modal-box {
+    background: var(--sidebar-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-radius: 16px; padding: 24px; width: 420px; max-height: 80vh; overflow-y: auto;
+    border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: scaleIn 0.2s ease-out;
+  }
+  @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .modal-header h3 { font-size: 15px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted);
+    transition: transform 0.3s ease, color 0.2s ease; width: 32px; height: 32px;
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  }
+  .modal-close:hover { transform: rotate(90deg); color: var(--text); background: rgba(255,255,255,0.05); }
+  .session-item {
+    padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px;
+    cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+    border-left: 3px solid transparent;
+  }
+  .session-item:hover { border-color: var(--accent); background: rgba(6, 182, 212, 0.04); border-left-color: var(--accent); }
+  .session-item .sess-id { font-weight: 500; font-size: 13px; color: var(--text); }
+  .session-item .sess-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -251,10 +283,17 @@
     <button onclick="loadSessions()" style="margin-left:auto">📋 历史</button>
   </div>
   <div class="messages" id="messages">
-    <div style="text-align:center;color:var(--muted);margin-top:60px">
-      <div style="font-size:48px;margin-bottom:16px">🧠</div>
-      <div style="font-size:16px;font-weight:500;margin-bottom:8px">FileMaker AI Gateway 测试控制台</div>
-      <div style="font-size:13px">在下方输入消息开始测试</div>
+    <div style="text-align:center;color:var(--muted);margin-top:80px">
+      <div style="font-size:56px;margin-bottom:20px;opacity:0.6">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="32,6 58,19 58,45 32,58 6,45 6,19" stroke="#06b6d4" stroke-width="1.5"
+                   fill="none" opacity="0.6"/>
+          <polygon points="32,14 50,23 50,41 32,50 14,41 14,23" stroke="#06b6d4" stroke-width="1"
+                   fill="none" opacity="0.3"/>
+        </svg>
+      </div>
+      <div style="font-size:16px;font-weight:500;margin-bottom:6px;color:var(--text-secondary)">FileMaker AI Gateway</div>
+      <div style="font-size:13px">输入消息开始与 AI 对话</div>
     </div>
   </div>
   <div class="media-preview" id="media-preview"></div>
@@ -268,11 +307,11 @@
 </div>
 
 <!-- Session List Modal -->
-<div id="sessionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:100;justify-content:center;align-items:center">
-  <div style="background:#fff;border-radius:16px;padding:24px;width:400px;max-height:80vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+<div class="modal-overlay" id="sessionModal">
+  <div class="modal-box">
+    <div class="modal-header">
       <h3>📋 会话列表</h3>
-      <button onclick="document.getElementById('sessionModal').style.display='none'" style="background:none;border:none;font-size:20px;cursor:pointer">&times;</button>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
     </div>
     <div id="sessionList"></div>
   </div>
@@ -306,7 +345,10 @@ function renderMarkdown(text) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   // Code blocks: ```...```
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, function(match, lang, code) {
+    var langTag = lang ? '<span class="lang-tag">' + lang + '</span>' : '';
+    return '<pre>' + langTag + '<code>' + code + '</code></pre>';
+  });
 
   // Inline code: `...`
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -500,7 +542,7 @@ function newSession() {
 async function loadSessions() {
   const modal = document.getElementById('sessionModal');
   const list = document.getElementById('sessionList');
-  modal.style.display = 'flex';
+  modal.classList.add('open');
 
   try {
     const resp = await fetch(API + '/sessions', { headers: { 'X-API-Key': API_KEY } });
@@ -509,10 +551,10 @@ async function loadSessions() {
       list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">暂无会话</div>';
     } else {
       list.innerHTML = sessions.map(s => `
-        <div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer"
-             onclick="document.getElementById('sessionId').value='${s.id}';document.getElementById('sessionModal').style.display='none';loadSessionDetail('${s.id}')">
-          <div style="font-weight:500;font-size:13px">${s.id}</div>
-          <div style="font-size:11px;color:var(--muted)">${s.message_count} 条消息 · ${new Date(s.updated_at).toLocaleString()}</div>
+        <div class="session-item"
+             onclick="document.getElementById('sessionId').value='${s.id}';closeModal();loadSessionDetail('${s.id}')">
+          <div class="sess-id">${s.id}</div>
+          <div class="sess-meta">${s.message_count} 条消息 · ${new Date(s.updated_at).toLocaleString()}</div>
         </div>
       `).join('');
     }
@@ -534,6 +576,10 @@ async function loadSessionDetail(id) {
       });
     }
   } catch(e) {}
+}
+
+function closeModal() {
+  document.getElementById('sessionModal').classList.remove('open');
 }
 </script>
 </body>
