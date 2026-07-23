@@ -53,26 +53,36 @@
   ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.16); }
 
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
   /* Sidebar */
   .sidebar {
-    width: 260px; background: var(--surface); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; flex-shrink: 0;
+    width: 260px; background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0;
   }
-  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
-  .sidebar-header h1 { font-size: 16px; font-weight: 600; }
-  .sidebar-header .ver { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .sidebar-stats { padding: 12px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
-  .sidebar-stats span { display: block; margin-bottom: 2px; }
-  .sidebar-stats .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; margin-right: 4px; }
+  .sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h1 {
+    font-size: 16px; font-weight: 600; background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    text-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+  }
+  .sidebar-header .ver { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .sidebar-stats { padding: 14px 16px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+  .sidebar-stats span { display: block; margin-bottom: 3px; }
+  .sidebar-stats .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 2s ease-in-out infinite; }
   .sidebar-body { flex: 1; overflow-y: auto; padding: 8px; }
-  .sidebar-body .section-title { font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 8px 4px; letter-spacing: 0.5px; }
+  .sidebar-body .section-title { font-size: 10px; text-transform: uppercase; color: var(--muted); padding: 12px 8px 6px; letter-spacing: 1px; font-weight: 500; }
   .tool-item {
-    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-    border-radius: 6px; font-size: 13px; cursor: default;
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+    border-radius: 8px; font-size: 13px; cursor: default; color: var(--text-secondary);
+    transition: background 0.2s ease, color 0.2s ease;
   }
-  .tool-item .icon { font-size: 16px; }
-  .tool-item .badge { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 99px; }
-  .badge-live { background: #dcfce7; color: #166534; }
+  .tool-item:hover { background: rgba(6, 182, 212, 0.08); color: var(--text); }
+  .tool-item .icon { font-size: 15px; }
+  .tool-item .badge { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 
   /* Main */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -173,7 +183,7 @@
     <div class="ver">v0.1.0 · DeepSeek v4-pro</div>
   </div>
   <div class="sidebar-stats">
-    <span><span class="dot"></span> 127.0.0.1:8080</span>
+    <span id="status-info"><span class="dot"></span> 连接中…</span>
     <span id="tool-count">加载中…</span>
   </div>
   <div class="sidebar-body">
@@ -225,13 +235,14 @@ let mediaFiles = [];
 
 // --- Init ---
 fetch(API + '/health').then(r => r.json()).then(data => {
+  document.getElementById('status-info').innerHTML = `<span class="dot"></span> ${API.replace('http://','')}`;
   document.getElementById('tool-count').innerHTML = `<span class="dot"></span> ${data.tools.length} tools · ${data.provider}`;
   const list = document.getElementById('tool-list');
   const icons = { filemaker_query:'🔍', filemaker_record:'📝', filemaker_script:'⚡', filemaker_layout:'📐', ocr:'👁️', sql_query:'🗄️', echo:'📢' };
   data.tools.forEach(t => {
     const div = document.createElement('div');
     div.className = 'tool-item';
-    div.innerHTML = `<span class="icon">${icons[t]||'🔧'}</span>${t}<span class="badge badge-live">live</span>`;
+    div.innerHTML = `<span class="icon">${icons[t]||'🔧'}</span>${t}<span class="badge"></span>`;
     list.appendChild(div);
   });
 });
