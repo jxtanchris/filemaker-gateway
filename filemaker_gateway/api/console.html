@@ -318,13 +318,13 @@
 </div>
 
 <script>
-const API = 'http://127.0.0.1:8080';
+const API = '';
 const API_KEY = 'filemaker-secret-key-change-me';
 let mediaFiles = [];
 
 // --- Init ---
 fetch(API + '/health').then(r => r.json()).then(data => {
-  document.getElementById('status-info').innerHTML = `<span class="dot"></span> ${API.replace('http://','')}`;
+  document.getElementById('status-info').innerHTML = `<span class="dot"></span> ${location.host}`;
   document.getElementById('tool-count').innerHTML = `<span class="dot"></span> ${data.tools.length} tools · ${data.provider}`;
   const list = document.getElementById('tool-list');
   const icons = { filemaker_query:'🔍', filemaker_record:'📝', filemaker_script:'⚡', filemaker_layout:'📐', ocr:'👁️', sql_query:'🗄️', echo:'📢' };
